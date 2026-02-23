@@ -1,0 +1,24 @@
+site_name: Buoyancy-Assisted UAV
+site_url: https://hrob02.github.io/buoyancy-assisted-uav/
+repo_url: https://github.com/Hrob02/buoyancy-assisted-uav
+repo_name: Hrob02/buoyancy-assisted-uav
+
+theme:
+  name: material
+  palette:
+    primary: indigo
+    accent: light blue
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - toc.integrate
+
+nav:
+  - Home: index.md
+  - Getting Started: getting_started.md
+  - ROS 2 Workspace: ros2.md
+  - MATLAB Modelling: matlab.md
+  - API Reference: api.md
+
+plugins:
+  - search
