@@ -1,0 +1,58 @@
+# ─── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.venv/
+venv/
+env/
+pip-wheel-metadata/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# ─── ROS 2 / colcon ───────────────────────────────────────────────────────────
+ros_ws/build/
+ros_ws/install/
+ros_ws/log/
+
+# ─── MATLAB ───────────────────────────────────────────────────────────────────
+*.asv
+*.mex*
+matlab/results/*
+matlab/figures/*
+matlab/data/generated/
+!matlab/results/.gitkeep
+!matlab/figures/.gitkeep
+!matlab/data/generated/.gitkeep
+
+# ─── Generated outputs ────────────────────────────────────────────────────────
+data/generated/
+!data/generated/.gitkeep
+
+# ─── VS Code ──────────────────────────────────────────────────────────────────
+.vscode/
+*.code-workspace
+
+# ─── OS ───────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─── Docs build ───────────────────────────────────────────────────────────────
+docs/site/
+
+# ─── Misc ─────────────────────────────────────────────────────────────────────
+*.log
+*.tmp
+*.bak
+*.swp
+*.orig

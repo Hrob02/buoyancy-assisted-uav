@@ -1,0 +1,23 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "Buoyancy-Assisted UAV — Aerodynamic Modelling and ROS 2 Simulation"
+authors:
+  - family-names: Rob
+    given-names: H
+    alias: Hrob02
+repository-code: "https://github.com/Hrob02/buoyancy-assisted-uav"
+license: MIT
+version: 0.1.0
+date-released: "2025-01-01"
+abstract: >
+  Aerodynamic and energy/performance modelling (MATLAB) combined with
+  ROS 2 (Humble) Python simulation in Gazebo/RViz for a buoyancy-assisted
+  UAV operating in mixed-agriculture environments. Honours project.
+keywords:
+  - UAV
+  - buoyancy
+  - aerodynamics
+  - ROS2
+  - simulation
+  - agriculture

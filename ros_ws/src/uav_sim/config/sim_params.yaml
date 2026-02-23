@@ -1,0 +1,9 @@
+# sim_params.yaml — Default parameters for the UAV simulation nodes.
+
+flight_controller:
+  ros__parameters:
+    publish_rate_hz: 10.0
+
+sensor_publisher:
+  ros__parameters:
+    publish_rate_hz: 50.0
