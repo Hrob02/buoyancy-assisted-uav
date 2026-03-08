@@ -1,0 +1,11 @@
+ruff
+black
+isort
+pytest
+pre-commit
+PyQt6
+numpy
+matplotlib
+
+# Optional alternative UI dependency:
+# PySide6

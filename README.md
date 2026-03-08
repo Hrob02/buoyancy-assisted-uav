@@ -91,6 +91,22 @@ bash scripts/setup_dev_env.sh
 source .venv/bin/activate
 ```
 
+Or install from `requirements.txt` directly:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+Windows PowerShell:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
+
 ### 2 — Build the ROS 2 workspace
 
 ```bash
@@ -117,6 +133,27 @@ Open MATLAB, navigate to `matlab/`, and run:
 run('scripts/setup_paths.m')
 run('scripts/main.m')
 ```
+
+---
+
+## VS Code Tasks & Extensions
+
+This repo includes task shortcuts in `.vscode/tasks.json`:
+
+- **Run ROS Sim (WSL)** — launches `scripts/run_sim.sh` in WSL
+- **Run MATLAB Sim** — runs `matlab/scripts/main.m` via MATLAB batch mode
+
+Run them with:
+
+1. `Ctrl+Shift+P`
+2. **Tasks: Run Task**
+3. Select the task
+
+Recommended VS Code extensions:
+
+- **ms-python.python** (Python tooling)
+- **ms-iot.vscode-ros** (ROS integration)
+- **GitHub.copilot** (optional AI assistance)
 
 ---
 
