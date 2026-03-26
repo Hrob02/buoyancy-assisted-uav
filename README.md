@@ -79,8 +79,145 @@ buoyancy-assisted-uav/
 
 - Python ≥ 3.10
 - ROS 2 Humble (for simulation)
-- MATLAB R2023b+ (for modelling)
+- MATLAB R2025b+ (for modelling)
 - [pre-commit](https://pre-commit.com/)
+
+## MATLAB Libraries
+- Statistics and Machine Learning Toolbox
+
+## WSL Setup (Tested Environment)
+
+This project has been developed and tested using Windows Subsystem for Linux (WSL2) with Ubuntu 22.04.
+
+---
+
+### Install WSL and Ubuntu
+
+In PowerShell (run as administrator):
+
+```powershell
+wsl --install -d Ubuntu-22.04
+```
+
+Restart your machine if prompted.
+
+After installation, launch Ubuntu and complete the initial setup (username and password).
+
+---
+
+### Install ROS 2 Humble
+
+Set locale:
+
+```bash
+sudo apt update
+sudo apt install locales -y
+sudo locale-gen en_US en_US.UTF-8
+sudo update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
+export LANG=en_US.UTF-8
+```
+
+Enable required repositories:
+
+```bash
+sudo apt install software-properties-common -y
+sudo add-apt-repository universe
+```
+
+Add ROS 2 repository:
+
+```bash
+sudo apt update
+sudo apt install curl -y
+sudo curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
+  -o /usr/share/keyrings/ros-archive-keyring.gpg
+```
+
+```bash
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] \
+http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" \
+| sudo tee /etc/apt/sources.list.d/ros2.list > /dev/null
+```
+
+Install ROS 2:
+
+```bash
+sudo apt update
+sudo apt upgrade -y
+sudo apt install ros-humble-desktop -y
+```
+
+---
+
+### Workspace Setup
+
+Clone the repository into a ROS 2 workspace:
+
+```bash
+mkdir -p ~/ros2_ws/src
+cd ~/ros2_ws/src
+git clone https://github.com/Hrob02/buoyancy-assisted-uav.git
+```
+
+Install dependencies:
+
+```bash
+cd ~/ros2_ws
+sudo apt install python3-colcon-common-extensions python3-rosdep python3-vcstool -y
+sudo rosdep init
+rosdep update
+rosdep install --from-paths src --ignore-src -r -y
+```
+
+Build the workspace:
+
+```bash
+colcon build --symlink-install
+```
+
+---
+
+### Gazebo and RViz
+
+Install simulation tools:
+
+```bash
+sudo apt install gazebo ros-humble-gazebo-ros-pkgs -y
+sudo apt install ros-humble-rviz2 -y
+```
+
+Run:
+
+```bash
+gazebo
+rviz2
+```
+
+---
+
+### Optional: Automatic Environment Sourcing
+
+Add the following to `~/.bashrc` to automatically source ROS 2 and the workspace in every new terminal:
+
+```bash
+[ -f /opt/ros/humble/setup.bash ] && source /opt/ros/humble/setup.bash
+[ -f ~/ros2_ws/install/setup.bash ] && source ~/ros2_ws/install/setup.bash
+```
+
+Apply changes:
+
+```bash
+source ~/.bashrc
+```
+
+---
+
+### Notes
+
+* This setup uses Ubuntu 22.04 (Jammy) and ROS 2 Humble.
+* RViz is launched using `rviz2` (not `rviz`).
+* GUI applications (Gazebo and RViz) run via WSLg.
+
 
 ### 1 — Clone and set up the Python environment
 
