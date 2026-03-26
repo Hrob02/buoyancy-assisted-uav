@@ -1,0 +1,9 @@
+float64 z
+float64 vz
+float64 az
+float64 buoyancy_force
+float64 thrust_force
+float64 weight_force
+float64 drag_force
+float64 net_force
+bool grounded
