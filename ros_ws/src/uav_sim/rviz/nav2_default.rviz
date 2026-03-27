@@ -1,0 +1,17 @@
+Visualization Manager:
+  Class: ""Visualization Manager""
+  Displays:
+    - Class: rviz_default_plugins/RobotModel
+      Enabled: true
+      Name: RobotModel
+    - Class: rviz_default_plugins/Grid
+      Enabled: true
+      Name: Grid
+    - Class: nav2_rviz_plugins/GoalTool
+      Enabled: true
+      Name: 2D Nav Goal
+    - Class: rviz_default_plugins/TF
+      Enabled: true
+      Name: TF
+  Global Options:
+    Fixed Frame: map
