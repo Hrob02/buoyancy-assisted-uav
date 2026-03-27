@@ -1,4 +1,6 @@
 from setuptools import find_packages, setup
+from glob import glob
+import os
 
 package_name = "uav_sim"
 
@@ -9,14 +11,11 @@ setup(
     data_files=[
         ("share/ament_index/resource_index/packages", ["resource/" + package_name]),
         ("share/" + package_name, ["package.xml"]),
-        ("share/" + package_name + "/launch", [
-            "launch/sim.launch.py",
-            "launch/vertical_test.launch.py",
-        ]),
-        ("share/" + package_name + "/config", [
-            "config/sim_params.yaml",
-            "config/vertical_params.yaml",
-        ]),
+        (os.path.join("share", package_name, "launch"), glob("launch/*.launch.py")),
+        (os.path.join("share", package_name, "config"), glob("config/*.yaml")),
+        (os.path.join("share", package_name, "worlds"), glob("worlds/*")),
+        (os.path.join("share", package_name, "rviz"), glob("rviz/*")),
+        (os.path.join("share", package_name, "models", "simple_uav"), glob("models/simple_uav/*")),
     ],
     install_requires=["setuptools"],
     zip_safe=True,
@@ -29,7 +28,7 @@ setup(
         "console_scripts": [
             "flight_controller = uav_sim.flight_controller_node:main",
             "sensor_publisher = uav_sim.sensor_publisher_node:main",
-            'vertical_dynamics_node = uav_sim.vertical_dynamics_node:main',
+            "vertical_dynamics_node = uav_sim.vertical_dynamics_node:main",
         ],
     },
 )
