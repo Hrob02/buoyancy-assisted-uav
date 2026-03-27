@@ -28,5 +28,23 @@ def generate_launch_description():
             executable='vertical_dynamics_node',
             name='vertical_dynamics_node',
             output='screen'
+        ),
+        # Launch nav2_bringup for navigation stack
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource([
+                os.path.join(get_package_share_directory('nav2_bringup'), 'launch', 'bringup_launch.py')
+            ]),
+            launch_arguments={
+                'use_sim_time': 'true',
+                'autostart': 'true'
+            }.items(),
+        ),
+        # Launch RViz2 for visualization
+        Node(
+            package='rviz2',
+            executable='rviz2',
+            name='rviz2',
+            output='screen',
+            arguments=['-d', os.path.join(uav_sim_dir, 'rviz', 'nav2_default.rviz')]
         )
     ])
