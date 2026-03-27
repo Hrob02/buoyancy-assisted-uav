@@ -47,15 +47,15 @@ class VerticalDynamicsNode(Node):
         )
         self.state.update({'z': result['z'], 'vz': result['vz'], 'az': result['az']})
         msg = VerticalState()
-        msg.z = result['z']
-        msg.vz = result['vz']
-        msg.az = result['az']
-        msg.buoyancy_force = result['buoyancy_force']
-        msg.thrust_force = result['thrust_force']
-        msg.weight_force = result['weight_force']
-        msg.drag_force = result['drag_force']
-        msg.net_force = result['net_force']
-        msg.grounded = result['grounded']
+        msg.z = float(result['z'])
+        msg.vz = float(result['vz'])
+        msg.az = float(result['az'])
+        msg.buoyancy_force = float(result['buoyancy_force'])
+        msg.thrust_force = float(result['thrust_force'])
+        msg.weight_force = float(result['weight_force'])
+        msg.drag_force = float(result['drag_force'])
+        msg.net_force = float(result['net_force'])
+        msg.grounded = bool(result['grounded'])
         self.publisher.publish(msg)
 
 def main(args=None):
