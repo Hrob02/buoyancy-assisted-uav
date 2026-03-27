@@ -8,10 +8,10 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 
-# Uncomment and list .msg / .srv / .action files when ready:
-# rosidl_generate_interfaces(${PROJECT_NAME}
-#   "msg/UavState.msg"
-#   "srv/SetAltitude.srv"
-# )
+
+# Generate message and service interfaces
+rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/VerticalState.msg"
+)
 
 ament_package()
