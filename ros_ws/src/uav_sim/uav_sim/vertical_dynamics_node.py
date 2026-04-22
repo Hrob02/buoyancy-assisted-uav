@@ -1,6 +1,7 @@
 import rclpy
 from rclpy.node import Node
 from uav_interfaces.msg import VerticalState
+from std_msgs.msg import Float64
 from .physics import step_vertical_dynamics
 
 class VerticalDynamicsNode(Node):
@@ -16,6 +17,7 @@ class VerticalDynamicsNode(Node):
                 ('gravity_mps2', 9.81),
                 ('max_thrust_n', 1.5),
                 ('commanded_thrust_n', 0.6),
+                ('throttle_topic', 'uav/throttle_cmd'),
                 ('drag_coeff', 0.02),
                 ('dt', 0.02),
                 ('initial_z_m', 1.0),
@@ -28,13 +30,27 @@ class VerticalDynamicsNode(Node):
             'max_thrust_n', 'commanded_thrust_n', 'drag_coeff', 'dt',
             'initial_z_m', 'initial_vz_mps', 'ground_z_m'
         ]}
+        self._throttle_cmd = max(
+            0.0,
+            min(1.0, float(self.params['commanded_thrust_n']) / float(self.params['max_thrust_n']))
+        )
+        throttle_topic = str(self.get_parameter('throttle_topic').value)
         self.state = {
             'z': self.params['initial_z_m'],
             'vz': self.params['initial_vz_mps'],
             'az': 0.0
         }
         self.publisher = self.create_publisher(VerticalState, '/uav/vertical_state', 10)
+        self.throttle_sub = self.create_subscription(
+            Float64,
+            throttle_topic,
+            self.throttle_callback,
+            10,
+        )
         self.timer = self.create_timer(self.params['dt'], self.timer_callback)
+
+    def throttle_callback(self, msg: Float64):
+        self._throttle_cmd = max(0.0, min(1.0, float(msg.data)))
 
     def timer_callback(self):
         result = step_vertical_dynamics(
@@ -43,7 +59,7 @@ class VerticalDynamicsNode(Node):
             self.state['az'],
             self.params['dt'],
             self.params,
-            self.params['commanded_thrust_n']
+            float(self.params['max_thrust_n']) * self._throttle_cmd
         )
         self.state.update({'z': result['z'], 'vz': result['vz'], 'az': result['az']})
         msg = VerticalState()

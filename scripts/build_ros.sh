@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # build_ros.sh — Source ROS 2 and build the colcon workspace.
-set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WS_DIR="$REPO_ROOT/ros_ws"

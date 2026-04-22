@@ -3,6 +3,15 @@
 flight_controller:
   ros__parameters:
     publish_rate_hz: 10.0
+    takeoff_altitude_m: 4.0
+    altitude_tolerance_m: 0.15
+    kp: 0.22
+    kd: 0.12
+    base_hover_throttle: 0.46
+    min_throttle: 0.0
+    max_throttle: 1.0
+    mission_hold_time_s: 4.0
+    mission_route_m: [5.5, 3.0, 6.0, 2.5]
 
 sensor_publisher:
   ros__parameters:

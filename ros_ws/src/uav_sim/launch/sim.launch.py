@@ -11,6 +11,7 @@ def generate_launch_description() -> LaunchDescription:
     pkg_share = FindPackageShare("uav_sim")
 
     params_file = PathJoinSubstitution([pkg_share, "config", "sim_params.yaml"])
+    vertical_params_file = PathJoinSubstitution([pkg_share, "config", "vertical_params.yaml"])
 
     use_sim_time_arg = DeclareLaunchArgument(
         "use_sim_time",
@@ -34,10 +35,19 @@ def generate_launch_description() -> LaunchDescription:
         output="screen",
     )
 
+    vertical_dynamics_node = Node(
+        package="uav_sim",
+        executable="vertical_dynamics_node",
+        name="vertical_dynamics_node",
+        parameters=[vertical_params_file, {"use_sim_time": LaunchConfiguration("use_sim_time")}],
+        output="screen",
+    )
+
     return LaunchDescription(
         [
             use_sim_time_arg,
             flight_controller_node,
             sensor_publisher_node,
+            vertical_dynamics_node,
         ]
     )

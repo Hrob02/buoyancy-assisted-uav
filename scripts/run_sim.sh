@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # run_sim.sh — Source the workspace and launch the UAV simulation.
-set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WS_DIR="$REPO_ROOT/ros_ws"

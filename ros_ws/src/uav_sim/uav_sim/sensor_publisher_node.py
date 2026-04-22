@@ -5,6 +5,7 @@ from geometry_msgs.msg import Vector3
 from rclpy.node import Node
 from sensor_msgs.msg import Imu
 from std_msgs.msg import Float64
+from uav_interfaces.msg import VerticalState
 
 
 class SensorPublisherNode(Node):
@@ -22,9 +23,20 @@ class SensorPublisherNode(Node):
 
         self._imu_pub = self.create_publisher(Imu, "uav/imu", 10)
         self._alt_pub = self.create_publisher(Float64, "uav/altitude_m", 10)
+        self._vertical_state_sub = self.create_subscription(
+            VerticalState,
+            "/uav/vertical_state",
+            self._vertical_state_callback,
+            10,
+        )
+
+        self._altitude_m = 0.0
 
         self._timer = self.create_timer(1.0 / rate, self._timer_callback)
         self.get_logger().info("SensorPublisherNode started.")
+
+    def _vertical_state_callback(self, msg: VerticalState) -> None:
+        self._altitude_m = float(msg.z)
 
     def _timer_callback(self) -> None:
         stamp = self.get_clock().now().to_msg()
@@ -36,7 +48,7 @@ class SensorPublisherNode(Node):
         self._imu_pub.publish(imu_msg)
 
         alt_msg = Float64()
-        alt_msg.data = 0.0  # placeholder altitude [m]
+        alt_msg.data = float(self._altitude_m)
         self._alt_pub.publish(alt_msg)
 
 
