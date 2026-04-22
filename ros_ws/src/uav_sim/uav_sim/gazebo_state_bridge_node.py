@@ -42,6 +42,7 @@ class GazeboStateBridgeNode(Node):
         self._set_state_client_fallback = self.create_client(SetEntityState, "/set_entity_state")
         self._set_model_state_client = self.create_client(SetModelState, "/gazebo/set_model_state")
         self._set_model_state_client_fallback = self.create_client(SetModelState, "/set_model_state")
+        self._model_state_pub = self.create_publisher(ModelState, "/gazebo/set_model_state", 10)
         self._timer = self.create_timer(0.05, self._timer_callback)
 
         self.get_logger().info("GazeboStateBridgeNode started.")
@@ -88,6 +89,15 @@ class GazeboStateBridgeNode(Node):
 
         twist = Twist()
         twist.linear.z = self._latest_vz
+
+        # Topic-based model-state update works on many Gazebo setups even when
+        # the corresponding services are delayed or unavailable.
+        model_state_msg = ModelState()
+        model_state_msg.model_name = self._entity_name
+        model_state_msg.reference_frame = "world"
+        model_state_msg.pose = pose
+        model_state_msg.twist = twist
+        self._model_state_pub.publish(model_state_msg)
 
         self._request_in_flight = True
         if model_client is not None:
