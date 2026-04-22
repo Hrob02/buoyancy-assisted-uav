@@ -19,7 +19,7 @@ def generate_launch_description() -> LaunchDescription:
 
     use_sim_time_arg = DeclareLaunchArgument(
         "use_sim_time",
-        default_value="true",
+        default_value="false",
         description="Use Gazebo simulation time if true",
     )
     start_rviz_arg = DeclareLaunchArgument(
@@ -29,7 +29,15 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     gazebo = ExecuteProcess(
-        cmd=["gazebo", "--verbose", world_file, "-s", "libgazebo_ros_factory.so"],
+        cmd=[
+            "gazebo",
+            "--verbose",
+            world_file,
+            "-s",
+            "libgazebo_ros_init.so",
+            "-s",
+            "libgazebo_ros_factory.so",
+        ],
         output="screen",
     )
 

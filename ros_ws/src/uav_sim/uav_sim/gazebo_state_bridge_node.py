@@ -26,6 +26,8 @@ class GazeboStateBridgeNode(Node):
         self._latest_vz = 0.0
         self._has_state = False
         self._request_in_flight = False
+        self._warned_no_service = False
+        self._last_debug_log_s = 0.0
 
         self._vertical_state_sub = self.create_subscription(
             VerticalState,
@@ -35,6 +37,7 @@ class GazeboStateBridgeNode(Node):
         )
 
         self._set_state_client = self.create_client(SetEntityState, "/gazebo/set_entity_state")
+        self._set_state_client_fallback = self.create_client(SetEntityState, "/set_entity_state")
         self._timer = self.create_timer(0.05, self._timer_callback)
 
         self.get_logger().info("GazeboStateBridgeNode started.")
@@ -48,8 +51,23 @@ class GazeboStateBridgeNode(Node):
         if not self._has_state or self._request_in_flight:
             return
 
-        if not self._set_state_client.wait_for_service(timeout_sec=0.0):
+        now_s = self.get_clock().now().nanoseconds / 1e9
+        client = None
+        if self._set_state_client.wait_for_service(timeout_sec=0.0):
+            client = self._set_state_client
+        elif self._set_state_client_fallback.wait_for_service(timeout_sec=0.0):
+            client = self._set_state_client_fallback
+        else:
+            if not self._warned_no_service:
+                self.get_logger().warn(
+                    "Waiting for Gazebo set_entity_state service (/gazebo/set_entity_state or /set_entity_state)."
+                )
+                self._warned_no_service = True
             return
+
+        if self._warned_no_service:
+            self.get_logger().info("Connected to Gazebo set_entity_state service.")
+            self._warned_no_service = False
 
         req = SetEntityState.Request()
         req.state = EntityState()
@@ -68,8 +86,12 @@ class GazeboStateBridgeNode(Node):
         req.state.twist = twist
 
         self._request_in_flight = True
-        future = self._set_state_client.call_async(req)
+        future = client.call_async(req)
         future.add_done_callback(self._on_set_state_done)
+
+        if now_s - self._last_debug_log_s >= 2.0:
+            self._last_debug_log_s = now_s
+            self.get_logger().info("Bridge update z=%.2f vz=%.2f" % (self._latest_z, self._latest_vz))
 
     def _on_set_state_done(self, future) -> None:
         self._request_in_flight = False
