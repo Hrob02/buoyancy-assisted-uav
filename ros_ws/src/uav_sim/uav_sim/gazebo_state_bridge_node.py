@@ -3,7 +3,9 @@
 import rclpy
 from geometry_msgs.msg import Pose, Twist
 from gazebo_msgs.msg import EntityState
+from gazebo_msgs.msg import ModelState
 from gazebo_msgs.srv import SetEntityState
+from gazebo_msgs.srv import SetModelState
 from rclpy.node import Node
 from uav_interfaces.msg import VerticalState
 
@@ -38,6 +40,8 @@ class GazeboStateBridgeNode(Node):
 
         self._set_state_client = self.create_client(SetEntityState, "/gazebo/set_entity_state")
         self._set_state_client_fallback = self.create_client(SetEntityState, "/set_entity_state")
+        self._set_model_state_client = self.create_client(SetModelState, "/gazebo/set_model_state")
+        self._set_model_state_client_fallback = self.create_client(SetModelState, "/set_model_state")
         self._timer = self.create_timer(0.05, self._timer_callback)
 
         self.get_logger().info("GazeboStateBridgeNode started.")
@@ -52,15 +56,22 @@ class GazeboStateBridgeNode(Node):
             return
 
         now_s = self.get_clock().now().nanoseconds / 1e9
-        client = None
+        entity_client = None
+        model_client = None
         if self._set_state_client.wait_for_service(timeout_sec=0.0):
-            client = self._set_state_client
+            entity_client = self._set_state_client
         elif self._set_state_client_fallback.wait_for_service(timeout_sec=0.0):
-            client = self._set_state_client_fallback
-        else:
+            entity_client = self._set_state_client_fallback
+
+        if self._set_model_state_client.wait_for_service(timeout_sec=0.0):
+            model_client = self._set_model_state_client
+        elif self._set_model_state_client_fallback.wait_for_service(timeout_sec=0.0):
+            model_client = self._set_model_state_client_fallback
+
+        if entity_client is None and model_client is None:
             if not self._warned_no_service:
                 self.get_logger().warn(
-                    "Waiting for Gazebo set_entity_state service (/gazebo/set_entity_state or /set_entity_state)."
+                    "Waiting for Gazebo pose service (/gazebo/set_model_state, /set_model_state, /gazebo/set_entity_state, /set_entity_state)."
                 )
                 self._warned_no_service = True
             return
@@ -69,25 +80,34 @@ class GazeboStateBridgeNode(Node):
             self.get_logger().info("Connected to Gazebo set_entity_state service.")
             self._warned_no_service = False
 
-        req = SetEntityState.Request()
-        req.state = EntityState()
-        req.state.name = self._entity_name
-        req.state.reference_frame = "world"
-
         pose = Pose()
         pose.position.x = self._fixed_x
         pose.position.y = self._fixed_y
         pose.position.z = self._latest_z
         pose.orientation.w = 1.0
-        req.state.pose = pose
 
         twist = Twist()
         twist.linear.z = self._latest_vz
-        req.state.twist = twist
 
         self._request_in_flight = True
-        future = client.call_async(req)
-        future.add_done_callback(self._on_set_state_done)
+        if model_client is not None:
+            req = SetModelState.Request()
+            req.model_state = ModelState()
+            req.model_state.model_name = self._entity_name
+            req.model_state.reference_frame = "world"
+            req.model_state.pose = pose
+            req.model_state.twist = twist
+            future = model_client.call_async(req)
+            future.add_done_callback(self._on_set_model_state_done)
+        else:
+            req = SetEntityState.Request()
+            req.state = EntityState()
+            req.state.name = self._entity_name
+            req.state.reference_frame = "world"
+            req.state.pose = pose
+            req.state.twist = twist
+            future = entity_client.call_async(req)
+            future.add_done_callback(self._on_set_state_done)
 
         if now_s - self._last_debug_log_s >= 2.0:
             self._last_debug_log_s = now_s
@@ -98,9 +118,18 @@ class GazeboStateBridgeNode(Node):
         try:
             resp = future.result()
             if resp is not None and not resp.success:
-                self.get_logger().debug("SetEntityState failed: %s" % resp.status_message)
+                self.get_logger().warn("SetEntityState failed: %s" % resp.status_message)
         except Exception as exc:  # pragma: no cover - runtime transport errors
-            self.get_logger().debug("SetEntityState call exception: %s" % exc)
+            self.get_logger().warn("SetEntityState call exception: %s" % exc)
+
+    def _on_set_model_state_done(self, future) -> None:
+        self._request_in_flight = False
+        try:
+            resp = future.result()
+            if resp is not None and not resp.success:
+                self.get_logger().warn("SetModelState failed: %s" % resp.status_message)
+        except Exception as exc:  # pragma: no cover - runtime transport errors
+            self.get_logger().warn("SetModelState call exception: %s" % exc)
 
 
 def main(args=None) -> None:
