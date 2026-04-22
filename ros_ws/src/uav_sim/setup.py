@@ -30,6 +30,7 @@ setup(
             "sensor_publisher = uav_sim.sensor_publisher_node:main",
             "vertical_dynamics_node = uav_sim.vertical_dynamics_node:main",
             "gazebo_state_bridge = uav_sim.gazebo_state_bridge_node:main",
+            "rviz_visualization = uav_sim.rviz_visualization_node:main",
         ],
     },
 )

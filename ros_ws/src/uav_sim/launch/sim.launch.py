@@ -89,6 +89,14 @@ def generate_launch_description() -> LaunchDescription:
         output="screen",
     )
 
+    rviz_visualization_node = Node(
+        package="uav_sim",
+        executable="rviz_visualization",
+        name="rviz_visualization",
+        parameters=[{"use_sim_time": LaunchConfiguration("use_sim_time")}],
+        output="screen",
+    )
+
     rviz_node = Node(
         package="rviz2",
         executable="rviz2",
@@ -109,6 +117,7 @@ def generate_launch_description() -> LaunchDescription:
             sensor_publisher_node,
             vertical_dynamics_node,
             gazebo_bridge_node,
+            rviz_visualization_node,
             rviz_node,
         ]
     )

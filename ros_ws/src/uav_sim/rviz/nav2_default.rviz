@@ -13,5 +13,12 @@ Visualization Manager:
     - Class: rviz_default_plugins/TF
       Enabled: true
       Name: TF
+    - Alpha: 1
+      Class: rviz_default_plugins/Marker
+      Enabled: true
+      Marker Topic: /uav/marker
+      Name: UAV Marker
+      Namespaces:
+        uav: true
   Global Options:
     Fixed Frame: map
