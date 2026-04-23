@@ -128,7 +128,11 @@ class GazeboStateBridgeNode(Node):
         try:
             resp = future.result()
             if resp is not None and not resp.success:
-                self.get_logger().warn("SetEntityState failed: %s" % resp.status_message)
+                msg = getattr(resp, "status_message", "")
+                if msg:
+                    self.get_logger().warn("SetEntityState failed: %s" % msg)
+                else:
+                    self.get_logger().warn("SetEntityState failed.")
         except Exception as exc:  # pragma: no cover - runtime transport errors
             self.get_logger().warn("SetEntityState call exception: %s" % exc)
 
@@ -137,7 +141,11 @@ class GazeboStateBridgeNode(Node):
         try:
             resp = future.result()
             if resp is not None and not resp.success:
-                self.get_logger().warn("SetModelState failed: %s" % resp.status_message)
+                msg = getattr(resp, "status_message", "")
+                if msg:
+                    self.get_logger().warn("SetModelState failed: %s" % msg)
+                else:
+                    self.get_logger().warn("SetModelState failed.")
         except Exception as exc:  # pragma: no cover - runtime transport errors
             self.get_logger().warn("SetModelState call exception: %s" % exc)
 
@@ -151,7 +159,8 @@ def main(args=None) -> None:
         pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == "__main__":

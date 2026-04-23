@@ -19,10 +19,12 @@ class FlightControllerNode(Node):
         self.declare_parameter("takeoff_altitude_m", 4.0)
         self.declare_parameter("altitude_tolerance_m", 0.15)
         self.declare_parameter("kp", 0.22)
+        self.declare_parameter("ki", 0.06)
         self.declare_parameter("kd", 0.12)
         self.declare_parameter("base_hover_throttle", 0.46)
         self.declare_parameter("min_throttle", 0.0)
         self.declare_parameter("max_throttle", 1.0)
+        self.declare_parameter("integral_limit", 6.0)
         self.declare_parameter("mission_hold_time_s", 4.0)
         self.declare_parameter("mission_route_m", [5.5, 3.0, 6.0, 2.5])
 
@@ -30,10 +32,12 @@ class FlightControllerNode(Node):
         self._takeoff_altitude_m = float(self.get_parameter("takeoff_altitude_m").value)
         self._alt_tolerance_m = float(self.get_parameter("altitude_tolerance_m").value)
         self._kp = float(self.get_parameter("kp").value)
+        self._ki = float(self.get_parameter("ki").value)
         self._kd = float(self.get_parameter("kd").value)
         self._hover = float(self.get_parameter("base_hover_throttle").value)
         self._thr_min = float(self.get_parameter("min_throttle").value)
         self._thr_max = float(self.get_parameter("max_throttle").value)
+        self._integral_limit = float(self.get_parameter("integral_limit").value)
         self._hold_time_s = float(self.get_parameter("mission_hold_time_s").value)
         route_values = self.get_parameter("mission_route_m").value
         self._route = [float(v) for v in route_values]
@@ -61,6 +65,8 @@ class FlightControllerNode(Node):
         self._target_altitude_m = self._takeoff_altitude_m
         self._route_index = 0
         self._hold_start_s = None
+        self._last_time_s = None
+        self._integral_error = 0.0
 
         # Timer
         self._timer = self.create_timer(1.0 / rate, self._timer_callback)
@@ -102,6 +108,7 @@ class FlightControllerNode(Node):
             self._target_altitude_m = self._route[self._route_index]
             self._route_index += 1
             self._hold_start_s = None
+            self._integral_error = 0.0
             self.get_logger().info(
                 "Advancing to mission waypoint %d at %.2fm"
                 % (self._route_index, self._target_altitude_m)
@@ -118,7 +125,21 @@ class FlightControllerNode(Node):
 
         altitude_error = self._target_altitude_m - self._current_z
         vz_error = -self._current_vz
-        throttle = self._hover + self._kp * altitude_error + self._kd * vz_error
+        dt = 0.0 if self._last_time_s is None else max(0.0, now_s - self._last_time_s)
+        self._last_time_s = now_s
+        if dt > 0.0:
+            self._integral_error += altitude_error * dt
+            self._integral_error = max(
+                -self._integral_limit,
+                min(self._integral_limit, self._integral_error),
+            )
+
+        throttle = (
+            self._hover
+            + self._kp * altitude_error
+            + self._ki * self._integral_error
+            + self._kd * vz_error
+        )
         throttle = max(self._thr_min, min(self._thr_max, throttle))
 
         msg = Float64()
@@ -136,7 +157,8 @@ def main(args=None) -> None:
         pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == "__main__":
