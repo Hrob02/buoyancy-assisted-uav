@@ -93,7 +93,7 @@ def generate_launch_description() -> LaunchDescription:
         package="uav_sim",
         executable="gazebo_state_bridge",
         name="gazebo_state_bridge",
-        parameters=[{"use_sim_time": LaunchConfiguration("use_sim_time")}],
+        parameters=[params_file, {"use_sim_time": LaunchConfiguration("use_sim_time")}],
         output="screen",
     )
 
@@ -101,7 +101,7 @@ def generate_launch_description() -> LaunchDescription:
         package="uav_sim",
         executable="rviz_visualization",
         name="rviz_visualization",
-        parameters=[{"use_sim_time": LaunchConfiguration("use_sim_time")}],
+        parameters=[params_file, {"use_sim_time": LaunchConfiguration("use_sim_time")}],
         output="screen",
     )
 

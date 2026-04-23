@@ -1,5 +1,7 @@
 """Bridge vertical simulation state into Gazebo model pose updates."""
 
+import math
+
 import rclpy
 from geometry_msgs.msg import Pose, Twist
 from gazebo_msgs.msg import EntityState
@@ -19,10 +21,25 @@ class GazeboStateBridgeNode(Node):
         self.declare_parameter("entity_name", "simple_uav")
         self.declare_parameter("fixed_x_m", 0.0)
         self.declare_parameter("fixed_y_m", 0.0)
+        self.declare_parameter("xy_motion_enabled", True)
+        self.declare_parameter("xy_motion_start_delay_s", 3.0)
+        self.declare_parameter("xy_motion_duration_s", 24.0)
+        self.declare_parameter("xy_motion_radius_m", 2.0)
+        self.declare_parameter("xy_motion_period_s", 12.0)
+        self.declare_parameter("xy_motion_y_scale", 0.7)
 
         self._entity_name = str(self.get_parameter("entity_name").value)
         self._fixed_x = float(self.get_parameter("fixed_x_m").value)
         self._fixed_y = float(self.get_parameter("fixed_y_m").value)
+        self._xy_motion_enabled = bool(self.get_parameter("xy_motion_enabled").value)
+        self._xy_motion_start_delay_s = float(self.get_parameter("xy_motion_start_delay_s").value)
+        self._xy_motion_duration_s = float(self.get_parameter("xy_motion_duration_s").value)
+        self._xy_motion_radius_m = float(self.get_parameter("xy_motion_radius_m").value)
+        self._xy_motion_period_s = max(
+            0.1,
+            float(self.get_parameter("xy_motion_period_s").value),
+        )
+        self._xy_motion_y_scale = float(self.get_parameter("xy_motion_y_scale").value)
 
         self._latest_z = 1.0
         self._latest_vz = 0.0
@@ -30,6 +47,7 @@ class GazeboStateBridgeNode(Node):
         self._request_in_flight = False
         self._warned_no_service = False
         self._last_debug_log_s = 0.0
+        self._mission_t0_s = None
 
         self._vertical_state_sub = self.create_subscription(
             VerticalState,
@@ -52,11 +70,44 @@ class GazeboStateBridgeNode(Node):
         self._latest_vz = float(msg.vz)
         self._has_state = True
 
+    def _compute_xy_state(self, now_s: float):
+        if self._mission_t0_s is None:
+            self._mission_t0_s = now_s
+
+        if not self._xy_motion_enabled:
+            return self._fixed_x, self._fixed_y, 0.0, 0.0
+
+        elapsed = now_s - self._mission_t0_s
+        t_xy = elapsed - self._xy_motion_start_delay_s
+        omega = 2.0 * math.pi / self._xy_motion_period_s
+
+        if t_xy <= 0.0:
+            return self._fixed_x, self._fixed_y, 0.0, 0.0
+
+        if t_xy > self._xy_motion_duration_s:
+            t_xy = self._xy_motion_duration_s
+
+        x = self._fixed_x + self._xy_motion_radius_m * math.cos(omega * t_xy)
+        y = self._fixed_y + self._xy_motion_radius_m * self._xy_motion_y_scale * math.sin(omega * t_xy)
+
+        if elapsed - self._mission_t0_s > (self._xy_motion_start_delay_s + self._xy_motion_duration_s):
+            return x, y, 0.0, 0.0
+
+        vx = -self._xy_motion_radius_m * omega * math.sin(omega * t_xy)
+        vy = (
+            self._xy_motion_radius_m
+            * self._xy_motion_y_scale
+            * omega
+            * math.cos(omega * t_xy)
+        )
+        return x, y, vx, vy
+
     def _timer_callback(self) -> None:
         if not self._has_state or self._request_in_flight:
             return
 
         now_s = self.get_clock().now().nanoseconds / 1e9
+        x, y, vx, vy = self._compute_xy_state(now_s)
         entity_client = None
         model_client = None
         if self._set_state_client.wait_for_service(timeout_sec=0.0):
@@ -78,16 +129,18 @@ class GazeboStateBridgeNode(Node):
             return
 
         if self._warned_no_service:
-            self.get_logger().info("Connected to Gazebo set_entity_state service.")
+            self.get_logger().info("Connected to Gazebo pose service.")
             self._warned_no_service = False
 
         pose = Pose()
-        pose.position.x = self._fixed_x
-        pose.position.y = self._fixed_y
+        pose.position.x = x
+        pose.position.y = y
         pose.position.z = self._latest_z
         pose.orientation.w = 1.0
 
         twist = Twist()
+        twist.linear.x = vx
+        twist.linear.y = vy
         twist.linear.z = self._latest_vz
 
         # Topic-based model-state update works on many Gazebo setups even when
@@ -121,7 +174,10 @@ class GazeboStateBridgeNode(Node):
 
         if now_s - self._last_debug_log_s >= 2.0:
             self._last_debug_log_s = now_s
-            self.get_logger().info("Bridge update z=%.2f vz=%.2f" % (self._latest_z, self._latest_vz))
+            self.get_logger().info(
+                "Bridge update x=%.2f y=%.2f z=%.2f"
+                % (pose.position.x, pose.position.y, self._latest_z)
+            )
 
     def _on_set_state_done(self, future) -> None:
         self._request_in_flight = False

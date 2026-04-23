@@ -18,3 +18,28 @@ flight_controller:
 sensor_publisher:
   ros__parameters:
     publish_rate_hz: 50.0
+
+gazebo_state_bridge:
+  ros__parameters:
+    fixed_x_m: 0.0
+    fixed_y_m: 0.0
+    xy_motion_enabled: true
+    xy_motion_start_delay_s: 3.0
+    xy_motion_duration_s: 24.0
+    xy_motion_radius_m: 2.0
+    xy_motion_period_s: 12.0
+    xy_motion_y_scale: 0.7
+
+rviz_visualization:
+  ros__parameters:
+    world_frame: map
+    uav_frame: simple_uav
+    fixed_x_m: 0.0
+    fixed_y_m: 0.0
+    xy_motion_enabled: true
+    xy_motion_start_delay_s: 3.0
+    xy_motion_duration_s: 24.0
+    xy_motion_radius_m: 2.0
+    xy_motion_period_s: 12.0
+    xy_motion_y_scale: 0.7
+    marker_scale_m: 0.25
