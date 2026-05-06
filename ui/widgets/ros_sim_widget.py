@@ -7,22 +7,18 @@ local ROS Python packages installed.
 
 from __future__ import annotations
 
+import ctypes
 import json
+import sys
 from pathlib import Path
 from pathlib import PureWindowsPath
 from typing import Callable, Optional
 
-import matplotlib  # type: ignore[import-not-found]
-
-matplotlib.use("QtAgg")
-
-from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg  # type: ignore[import-not-found]
-from matplotlib.figure import Figure  # type: ignore[import-not-found]
-
 try:
-    from PyQt6.QtCore import QProcess, QProcessEnvironment, QTimer, pyqtSignal
+    from PyQt6.QtCore import QEvent, QProcess, QProcessEnvironment, QTimer, Qt, pyqtSignal
     from PyQt6.QtWidgets import (
         QDoubleSpinBox,
+        QFrame,
         QGroupBox,
         QHBoxLayout,
         QLabel,
@@ -32,9 +28,10 @@ try:
         QWidget,
     )
 except ImportError:
-    from PySide6.QtCore import QProcess, QProcessEnvironment, QTimer, Signal as pyqtSignal  # type: ignore[no-redef]
+    from PySide6.QtCore import QEvent, QProcess, QProcessEnvironment, QTimer, Qt, Signal as pyqtSignal  # type: ignore[no-redef]
     from PySide6.QtWidgets import (  # type: ignore[no-redef]
         QDoubleSpinBox,
+        QFrame,
         QGroupBox,
         QHBoxLayout,
         QLabel,
@@ -75,7 +72,15 @@ class ROSSimWidget(QWidget):
 
         self.throttle_cmd = 0.0
 
+        self.gazebo_hwnd: Optional[int] = None
+        self.rviz_hwnd: Optional[int] = None
+        self.gazebo_pending_attach = False
+        self.rviz_pending_attach = False
+
         self._build_ui()
+
+        self.attach_retry_timer = QTimer(self)
+        self.attach_retry_timer.timeout.connect(self._process_pending_attachments)
 
         self.update_timer = QTimer(self)
         self.update_timer.timeout.connect(self._update_visualization)
@@ -118,11 +123,6 @@ class ROSSimWidget(QWidget):
         state_layout.addStretch(1)
         layout.addWidget(state_group)
 
-        self.figure = Figure(figsize=(8, 5), tight_layout=True, dpi=100)
-        self.canvas = FigureCanvasQTAgg(self.figure)
-        self.ax = self.figure.add_subplot(111, projection="3d")
-        layout.addWidget(self.canvas)
-
         control_group = QGroupBox("Flight Control")
         control_layout = QVBoxLayout(control_group)
 
@@ -163,7 +163,56 @@ class ROSSimWidget(QWidget):
         control_layout.addLayout(landing_row)
 
         layout.addWidget(control_group)
-        layout.addStretch(1)
+
+        # Live Simulation Views - side-by-side Gazebo and RViz containers
+        views_group = QGroupBox("Live Simulation Views")
+        views_layout = QHBoxLayout(views_group)
+        views_layout.setSpacing(12)
+        views_layout.setContentsMargins(6, 6, 6, 6)
+
+        # Gazebo panel
+        gazebo_section = QVBoxLayout()
+        gazebo_header = QHBoxLayout()
+        gazebo_header.addWidget(QLabel("Gazebo"))
+        self.gazebo_attached_label = QLabel("detached")
+        self.gazebo_attached_label.setStyleSheet("color: #e08a00;")
+        gazebo_header.addWidget(self.gazebo_attached_label)
+        self.gazebo_attach_button = QPushButton("Attach")
+        self.gazebo_attach_button.setMaximumWidth(80)
+        self.gazebo_attach_button.clicked.connect(self._on_attach_gazebo_clicked)
+        gazebo_header.addWidget(self.gazebo_attach_button)
+        gazebo_header.addStretch(1)
+        gazebo_section.addLayout(gazebo_header)
+        self.gazebo_container = QFrame()
+        self.gazebo_container.setAttribute(Qt.WidgetAttribute.WA_NativeWindow, True)
+        self.gazebo_container.installEventFilter(self)
+        self.gazebo_container.setMinimumHeight(250)
+        self.gazebo_container.setStyleSheet("background: #0a0a0a; border: 2px solid #333;")
+        gazebo_section.addWidget(self.gazebo_container, 1)
+        views_layout.addLayout(gazebo_section)
+
+        # RViz panel
+        rviz_section = QVBoxLayout()
+        rviz_header = QHBoxLayout()
+        rviz_header.addWidget(QLabel("RViz"))
+        self.rviz_attached_label = QLabel("detached")
+        self.rviz_attached_label.setStyleSheet("color: #e08a00;")
+        rviz_header.addWidget(self.rviz_attached_label)
+        self.rviz_attach_button = QPushButton("Attach")
+        self.rviz_attach_button.setMaximumWidth(80)
+        self.rviz_attach_button.clicked.connect(self._on_attach_rviz_clicked)
+        rviz_header.addWidget(self.rviz_attach_button)
+        rviz_header.addStretch(1)
+        rviz_section.addLayout(rviz_header)
+        self.rviz_container = QFrame()
+        self.rviz_container.setAttribute(Qt.WidgetAttribute.WA_NativeWindow, True)
+        self.rviz_container.installEventFilter(self)
+        self.rviz_container.setMinimumHeight(250)
+        self.rviz_container.setStyleSheet("background: #0a0a0a; border: 2px solid #333;")
+        rviz_section.addWidget(self.rviz_container, 1)
+        views_layout.addLayout(rviz_section)
+
+        layout.addWidget(views_group, 1)
 
     def set_hooks(self, append_output: Callable[[str], None], set_status: Callable[[str], None]) -> None:
         self.append_output = append_output
@@ -185,9 +234,16 @@ class ROSSimWidget(QWidget):
         self.trajectory_history_z.clear()
         self._set_bridge_state("starting")
         self._start_bridge_process()
+        # Auto-attach once windows are ready.
+        self.gazebo_pending_attach = True
+        self.rviz_pending_attach = True
+        self._set_panel_status("gazebo", "waiting", "#e08a00")
+        self._set_panel_status("rviz", "waiting", "#e08a00")
+        self.attach_retry_timer.start(700)
 
     def mark_simulation_stopped(self) -> None:
         self.sim_running = False
+        self.attach_retry_timer.stop()
         self.launch_button.setEnabled(self.launch_ready)
         self.stop_button.setEnabled(False)
         self.takeoff_button.setEnabled(False)
@@ -195,6 +251,9 @@ class ROSSimWidget(QWidget):
         self.bridge_connected = False
         self._set_bridge_state("idle")
         self._stop_bridge_process()
+        self._detach_embedded_windows()
+        self._set_panel_status("gazebo", "detached", "#e08a00")
+        self._set_panel_status("rviz", "detached", "#e08a00")
 
     def _set_bridge_state(self, state: str) -> None:
         self.bridge_state_label.setText(f"Bridge: {state}")
@@ -323,42 +382,158 @@ class ROSSimWidget(QWidget):
         self.state_y_label.setText(f"Y: {self.drone_y:.2f} m")
         grounded_text = "Grounded" if self.drone_grounded else "Flying"
         self.state_grounded_label.setText(f"Status: {grounded_text}")
+        self._resize_embedded_windows()
 
-        self.ax.clear()
-        if len(self.trajectory_history_x) > 1:
-            self.ax.plot(
-                self.trajectory_history_x,
-                self.trajectory_history_y,
-                self.trajectory_history_z,
-                color="#5d8dff",
-                linewidth=1.8,
-                label="Trajectory",
-            )
-        if self.trajectory_history_x:
-            self.ax.scatter(
-                [self.trajectory_history_x[-1]],
-                [self.trajectory_history_y[-1]],
-                [self.trajectory_history_z[-1]],
-                color="#ff6b6b",
-                s=100,
-                marker="o",
-                label="Current position",
-            )
+    def eventFilter(self, watched, event) -> bool:  # type: ignore[override]
+        if event.type() == QEvent.Type.Resize:
+            if watched is self.gazebo_container:
+                self._resize_window_to_container(self.gazebo_hwnd, self.gazebo_container)
+            elif watched is self.rviz_container:
+                self._resize_window_to_container(self.rviz_hwnd, self.rviz_container)
+        return super().eventFilter(watched, event)
 
-        span_xy = max(1.5, max((abs(v) for v in self.trajectory_history_x + self.trajectory_history_y), default=1.5) + 0.5)
-        top_z = max(1.0, max(self.trajectory_history_z, default=0.0) + 0.5)
-        self.ax.set_xlim(-span_xy, span_xy)
-        self.ax.set_ylim(-span_xy, span_xy)
-        self.ax.set_zlim(0.0, top_z)
-        self.ax.set_xlabel("X [m]")
-        self.ax.set_ylabel("Y [m]")
-        self.ax.set_zlabel("Z [m]")
-        self.ax.set_title("Manual Flight Trajectory")
-        handles, labels = self.ax.get_legend_handles_labels()
-        if handles:
-            self.ax.legend(handles, labels)
-        self.ax.set_box_aspect([1.0, 1.0, 0.6])
-        self.canvas.draw_idle()
+    def _on_attach_gazebo_clicked(self) -> None:
+        self.gazebo_pending_attach = True
+        self._set_panel_status("gazebo", "waiting", "#e08a00")
+        self._process_pending_attachments()
+        if self.sim_running and not self.attach_retry_timer.isActive():
+            self.attach_retry_timer.start(700)
+
+    def _on_attach_rviz_clicked(self) -> None:
+        self.rviz_pending_attach = True
+        self._set_panel_status("rviz", "waiting", "#e08a00")
+        self._process_pending_attachments()
+        if self.sim_running and not self.attach_retry_timer.isActive():
+            self.attach_retry_timer.start(700)
+
+    def _set_panel_status(self, panel: str, text: str, color: str) -> None:
+        label = self.gazebo_attached_label if panel == "gazebo" else self.rviz_attached_label
+        label.setText(text)
+        label.setStyleSheet(f"color: {color};")
+
+    def _process_pending_attachments(self) -> None:
+        if not self.sim_running:
+            return
+        if self.gazebo_pending_attach:
+            hwnd = self._find_top_level_window(("gazebo", "gzclient"))
+            if hwnd is not None and self._attach_window_to_container(hwnd, self.gazebo_container):
+                self.gazebo_hwnd = hwnd
+                self.gazebo_pending_attach = False
+                self._set_panel_status("gazebo", "attached", "#4a9eff")
+            else:
+                self._set_panel_status("gazebo", "waiting", "#e08a00")
+
+        if self.rviz_pending_attach:
+            hwnd = self._find_top_level_window(("rviz",))
+            if hwnd is not None and self._attach_window_to_container(hwnd, self.rviz_container):
+                self.rviz_hwnd = hwnd
+                self.rviz_pending_attach = False
+                self._set_panel_status("rviz", "attached", "#4a9eff")
+            else:
+                self._set_panel_status("rviz", "waiting", "#e08a00")
+
+        if not self.gazebo_pending_attach and not self.rviz_pending_attach:
+            self.attach_retry_timer.stop()
+
+    def _find_top_level_window(self, keywords: tuple[str, ...]) -> Optional[int]:
+        if sys.platform != "win32":
+            return None
+
+        user32 = ctypes.windll.user32
+        matches: list[int] = []
+
+        enum_proc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+
+        def callback(hwnd, _lparam):
+            if not user32.IsWindowVisible(hwnd):
+                return True
+            title_len = user32.GetWindowTextLengthW(hwnd)
+            if title_len <= 0:
+                return True
+            title_buf = ctypes.create_unicode_buffer(title_len + 1)
+            user32.GetWindowTextW(hwnd, title_buf, title_len + 1)
+            title = title_buf.value.strip().lower()
+            if "buoyancy-assisted uav" in title:
+                return True
+            if any(keyword in title for keyword in keywords):
+                matches.append(int(hwnd))
+            return True
+
+        user32.EnumWindows(enum_proc(callback), 0)
+        return matches[0] if matches else None
+
+    def _attach_window_to_container(self, hwnd: int, container: QFrame) -> bool:
+        if sys.platform != "win32":
+            return False
+
+        user32 = ctypes.windll.user32
+        GWL_STYLE = -16
+        WS_CHILD = 0x40000000
+        WS_VISIBLE = 0x10000000
+        WS_CAPTION = 0x00C00000
+        WS_THICKFRAME = 0x00040000
+        WS_MINIMIZE = 0x20000000
+        WS_MAXIMIZE = 0x01000000
+        WS_SYSMENU = 0x00080000
+        SWP_NOZORDER = 0x0004
+        SWP_NOACTIVATE = 0x0010
+        SWP_FRAMECHANGED = 0x0020
+        SWP_SHOWWINDOW = 0x0040
+
+        if not user32.IsWindow(ctypes.c_void_p(hwnd)):
+            return False
+
+        parent_hwnd = int(container.winId())
+        style = int(user32.GetWindowLongW(ctypes.c_void_p(hwnd), GWL_STYLE))
+        style = (style | WS_CHILD | WS_VISIBLE) & ~(WS_CAPTION | WS_THICKFRAME | WS_MINIMIZE | WS_MAXIMIZE | WS_SYSMENU)
+        user32.SetWindowLongW(ctypes.c_void_p(hwnd), GWL_STYLE, style)
+
+        if not user32.SetParent(ctypes.c_void_p(hwnd), ctypes.c_void_p(parent_hwnd)):
+            return False
+
+        self._resize_window_to_container(hwnd, container)
+        user32.SetWindowPos(
+            ctypes.c_void_p(hwnd),
+            None,
+            0,
+            0,
+            container.width(),
+            container.height(),
+            SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED | SWP_SHOWWINDOW,
+        )
+        return True
+
+    def _resize_window_to_container(self, hwnd: Optional[int], container: QFrame) -> None:
+        if hwnd is None or sys.platform != "win32":
+            return
+        user32 = ctypes.windll.user32
+        if not user32.IsWindow(ctypes.c_void_p(hwnd)):
+            return
+        user32.SetWindowPos(
+            ctypes.c_void_p(hwnd),
+            None,
+            0,
+            0,
+            max(1, container.width()),
+            max(1, container.height()),
+            0x0004 | 0x0010,
+        )
+
+    def _resize_embedded_windows(self) -> None:
+        self._resize_window_to_container(self.gazebo_hwnd, self.gazebo_container)
+        self._resize_window_to_container(self.rviz_hwnd, self.rviz_container)
+
+    def _detach_embedded_windows(self) -> None:
+        if sys.platform != "win32":
+            self.gazebo_hwnd = None
+            self.rviz_hwnd = None
+            return
+        user32 = ctypes.windll.user32
+        for hwnd in (self.gazebo_hwnd, self.rviz_hwnd):
+            if hwnd is not None and user32.IsWindow(ctypes.c_void_p(hwnd)):
+                user32.SetParent(ctypes.c_void_p(hwnd), None)
+        self.gazebo_hwnd = None
+        self.rviz_hwnd = None
 
     def _send_bridge_message(self, message: dict[str, object]) -> None:
         if self.bridge_process is None or self.bridge_process.state() != QProcess.ProcessState.Running:
