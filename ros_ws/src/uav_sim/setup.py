@@ -16,6 +16,28 @@ setup(
         (os.path.join("share", package_name, "worlds"), glob("worlds/*")),
         (os.path.join("share", package_name, "rviz"), glob("rviz/*")),
         (os.path.join("share", package_name, "models", "simple_uav"), glob("models/simple_uav/*")),
+        (
+            os.path.join("share", package_name, "models", "crazyflie_visual"),
+            [
+                "models/crazyflie_visual/model.config",
+                "models/crazyflie_visual/model.sdf",
+            ],
+        ),
+        (
+            os.path.join("share", package_name, "models", "crazyflie_visual", "meshes"),
+            glob("models/crazyflie_visual/meshes/*"),
+        ),
+        (
+            os.path.join("share", package_name, "models", "crazyflie_gz"),
+            [
+                "models/crazyflie_gz/model.config",
+                "models/crazyflie_gz/model.sdf",
+            ],
+        ),
+        (
+            os.path.join("share", package_name, "models", "crazyflie_gz", "meshes"),
+            glob("models/crazyflie_gz/meshes/*"),
+        ),
     ],
     install_requires=["setuptools"],
     zip_safe=True,

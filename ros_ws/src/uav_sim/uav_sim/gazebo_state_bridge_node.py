@@ -6,6 +6,7 @@ import rclpy
 from geometry_msgs.msg import Pose, Twist
 from gazebo_msgs.msg import EntityState
 from gazebo_msgs.msg import ModelState
+from gazebo_msgs.msg import ModelStates
 from gazebo_msgs.srv import SetEntityState
 from gazebo_msgs.srv import SetModelState
 from rclpy.node import Node
@@ -44,6 +45,8 @@ class GazeboStateBridgeNode(Node):
         self._latest_z = 1.0
         self._latest_vz = 0.0
         self._has_state = False
+        self._model_present = False
+        self._warned_model_missing = False
         self._request_in_flight = False
         self._warned_no_service = False
         self._last_debug_log_s = 0.0
@@ -53,6 +56,18 @@ class GazeboStateBridgeNode(Node):
             VerticalState,
             "/uav/vertical_state",
             self._vertical_state_callback,
+            10,
+        )
+        self._model_states_sub = self.create_subscription(
+            ModelStates,
+            "/gazebo/model_states",
+            self._model_states_callback,
+            10,
+        )
+        self._model_states_sub_fallback = self.create_subscription(
+            ModelStates,
+            "/model_states",
+            self._model_states_callback,
             10,
         )
 
@@ -69,6 +84,9 @@ class GazeboStateBridgeNode(Node):
         self._latest_z = float(msg.z)
         self._latest_vz = float(msg.vz)
         self._has_state = True
+
+    def _model_states_callback(self, msg: ModelStates) -> None:
+        self._model_present = self._entity_name in msg.name
 
     def _compute_xy_state(self, now_s: float):
         if self._mission_t0_s is None:
@@ -105,6 +123,19 @@ class GazeboStateBridgeNode(Node):
     def _timer_callback(self) -> None:
         if not self._has_state or self._request_in_flight:
             return
+
+        if not self._model_present:
+            if not self._warned_model_missing:
+                self.get_logger().info(
+                    "Waiting for model '%s' to appear in Gazebo model states."
+                    % self._entity_name
+                )
+                self._warned_model_missing = True
+            return
+
+        if self._warned_model_missing:
+            self.get_logger().info("Model '%s' detected in Gazebo." % self._entity_name)
+            self._warned_model_missing = False
 
         now_s = self.get_clock().now().nanoseconds / 1e9
         x, y, vx, vy = self._compute_xy_state(now_s)

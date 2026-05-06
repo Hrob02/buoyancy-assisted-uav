@@ -9,6 +9,7 @@ Requires PyQt6 or PySide6. Install with:
 import json
 import math
 from pathlib import Path
+from typing import Optional
 import sys
 import time
 
@@ -25,6 +26,7 @@ try:
 except ImportError:
     psutil = None
 
+from widgets.ros_sim_widget import ROSSimWidget
 
 try:
     from PyQt6.QtCore import QEasingCurve, QProcess, QPropertyAnimation, QRect, QTimer
@@ -139,6 +141,10 @@ class MainWindow(QMainWindow):
         self.left_nav_widgets: list[QWidget] = []
         self.sidebar_expanded_width = 260
         self.sidebar_collapsed_width = 72
+        self.ros_sim_widget: Optional[ROSSimWidget] = None
+        self.setup_complete = False
+        self.sim_process: Optional[QProcess] = None
+        self.setup_process: Optional[QProcess] = None
 
         self.cpu_label: QLabel
         self.cpu_bar: QProgressBar
@@ -153,6 +159,7 @@ class MainWindow(QMainWindow):
         self.sidebar_title: QLabel
         self.sidebar_toggle_button: QPushButton
         self.menu_nav_btn: QPushButton
+        self.sim_nav_btn: QPushButton
         self.airflow_nav_btn: QPushButton
         self.output_nav_btn: QPushButton
 
@@ -169,12 +176,18 @@ class MainWindow(QMainWindow):
 
         self.setCentralWidget(self.root)
         self._build_drawers()
+        if self.ros_sim_widget is not None:
+            self.ros_sim_widget.set_hooks(self.append_output, self.status_label.setText)
+            self.ros_sim_widget.set_setup_ready(False, "preparing workspace")
         self._apply_theme()
 
         self.monitor_timer = QTimer(self)
         self.monitor_timer.timeout.connect(self.update_system_monitors)
         self.monitor_timer.start(1200)
         self.update_system_monitors()
+
+        # Run setup task on startup
+        QTimer.singleShot(500, self._run_setup_on_startup)
 
     def _build_top_bar(self, parent_layout: QVBoxLayout) -> None:
         top_bar = QFrame()
@@ -236,7 +249,11 @@ class MainWindow(QMainWindow):
         action_group = QGroupBox("Actions")
         action_layout = QHBoxLayout(action_group)
         self.action_combo = QComboBox()
-        self.action_combo.addItems(["Run ROS Sim", "Run MATLAB Sim", "Control Drone (Placeholder)"])
+        self.action_combo.addItems([
+            "Run ROS Sim",
+            "Run MATLAB Sim",
+            "Control Drone (Placeholder)",
+        ])
         run_action_button = QPushButton("Run Selected Action")
         run_action_button.clicked.connect(self.run_selected_action)
         action_layout.addWidget(self.action_combo)
@@ -317,6 +334,16 @@ class MainWindow(QMainWindow):
         airflow_idx = self.pages.addWidget(airflow_page)
         self.page_lookup["Airflow tunnel test (shape + conditions)"] = airflow_idx
 
+        # Simulation page (ROS sim control)
+        sim_page = QWidget()
+        sim_layout = QVBoxLayout(sim_page)
+        self.ros_sim_widget = ROSSimWidget(parent=sim_page, repo_root=self.repo_root)
+        self.ros_sim_widget.launch_requested.connect(self._launch_manual_simulation)
+        self.ros_sim_widget.stop_requested.connect(self._stop_simulation)
+        sim_layout.addWidget(self.ros_sim_widget)
+        sim_idx = self.pages.addWidget(sim_page)
+        self.page_lookup["Simulation"] = sim_idx
+
         placeholders = [
             "Additional component effect on aerodynamics",
             "Weight-to-helium ratio sweep",
@@ -370,6 +397,10 @@ class MainWindow(QMainWindow):
         self.menu_nav_btn.setToolTip("Open Menu")
         self.menu_nav_btn.clicked.connect(lambda: self.pages.setCurrentIndex(self.page_lookup["Menu"]))
 
+        self.sim_nav_btn = QPushButton("🚁  Simulation")
+        self.sim_nav_btn.setToolTip("Open Simulation Control")
+        self.sim_nav_btn.clicked.connect(lambda: self.pages.setCurrentIndex(self.page_lookup["Simulation"]))
+
         self.airflow_nav_btn = QPushButton("🌀  Airflow")
         self.airflow_nav_btn.setToolTip("Open Airflow Test")
         self.airflow_nav_btn.clicked.connect(
@@ -384,11 +415,12 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.sidebar_toggle_button)
         layout.addWidget(separator)
         layout.addWidget(self.menu_nav_btn)
+        layout.addWidget(self.sim_nav_btn)
         layout.addWidget(self.airflow_nav_btn)
         layout.addWidget(self.output_nav_btn)
         layout.addStretch(1)
 
-        self.left_nav_widgets = [self.sidebar_title, self.menu_nav_btn, self.airflow_nav_btn, self.output_nav_btn]
+        self.left_nav_widgets = [self.sidebar_title, self.menu_nav_btn, self.sim_nav_btn, self.airflow_nav_btn, self.output_nav_btn]
         parent_layout.addWidget(self.sidebar)
 
     def _build_drawers(self) -> None:
@@ -511,6 +543,20 @@ class MainWindow(QMainWindow):
                 task_map[label] = task
         return task_map
 
+    def _resolve_task_invocation(self, program: str, args: list[str]) -> tuple[str, list[str]]:
+        workspace_folder = self.repo_root.as_posix()
+        workspace_basename = self.repo_root.name
+
+        def replace_vars(value: str) -> str:
+            return (
+                value.replace("${workspaceFolder}", workspace_folder)
+                .replace("${workspaceFolderBasename}", workspace_basename)
+            )
+
+        resolved_program = replace_vars(program)
+        resolved_args = [replace_vars(arg) for arg in args]
+        return resolved_program, resolved_args
+
     def append_output(self, text: str) -> None:
         if text.strip():
             self.output.append(text.rstrip())
@@ -520,6 +566,11 @@ class MainWindow(QMainWindow):
         if selection == "Control Drone (Placeholder)":
             self.status_label.setText("Control Drone not implemented yet")
             self.append_output("[placeholder] Drone control UI will be added in a later phase.")
+            return
+
+        if selection == "Run ROS Sim":
+            self.pages.setCurrentIndex(self.page_lookup["Simulation"])
+            self._launch_manual_simulation()
             return
 
         task = self.task_defs.get(selection)
@@ -688,9 +739,9 @@ class MainWindow(QMainWindow):
             f"3D Airflow | {condition_name}, {shape_name}, {component_name}, He={helium_ratio:.2f}"
         )
 
-        if self.figure.axes and len(self.figure.axes) > 1:
-            for extra_ax in self.figure.axes[1:]:
-                extra_ax.remove()
+        extra_axes = list(self.figure.axes)[1:]
+        for extra_ax in extra_axes:
+            extra_ax.remove()
 
         norm_map = matplotlib.colors.Normalize(vmin=0.0, vmax=vmax)
         scalar_map = matplotlib.cm.ScalarMappable(norm=norm_map, cmap="turbo")
@@ -704,11 +755,12 @@ class MainWindow(QMainWindow):
         )
         self.canvas.draw_idle()
 
-    def start_process(self, label: str, program: str, args: list[str]) -> None:
+    def start_process(self, label: str, program: str, args: list[str]) -> QProcess:
+        resolved_program, resolved_args = self._resolve_task_invocation(program, args)
         process = QProcess(self)
         process.setWorkingDirectory(str(self.repo_root))
-        process.setProgram(program)
-        process.setArguments(args)
+        process.setProgram(resolved_program)
+        process.setArguments(resolved_args)
 
         process.readyReadStandardOutput.connect(lambda p=process: self._read_process_output(p, False))
         process.readyReadStandardError.connect(lambda p=process: self._read_process_output(p, True))
@@ -723,8 +775,9 @@ class MainWindow(QMainWindow):
 
         self.running_processes.append(process)
         self.status_label.setText(f"Running: {label}")
-        self.append_output(f"[start] {label}: {program} {' '.join(args)}")
+        self.append_output(f"[start] {label}: {resolved_program} {' '.join(resolved_args)}")
         process.start()
+        return process
 
     def _read_process_output(self, process: QProcess, is_error: bool) -> None:
         data = process.readAllStandardError() if is_error else process.readAllStandardOutput()
@@ -743,10 +796,117 @@ class MainWindow(QMainWindow):
         self.append_output(f"[done] {label} exited with code {exit_code} ({status_name})")
         if process in self.running_processes:
             self.running_processes.remove(process)
+        if self.setup_process is process:
+            self.setup_process = None
+        if self.sim_process is process:
+            self.sim_process = None
+            if self.ros_sim_widget is not None:
+                self.ros_sim_widget.mark_simulation_stopped()
 
     def _process_error(self, label: str, error: QProcess.ProcessError) -> None:
         self.status_label.setText(f"Process error: {label}")
         self.append_output(f"[error] {label} process error: {error}")
+
+    def _launch_manual_simulation(self) -> None:
+        if not self.setup_complete:
+            self.status_label.setText("Still setting up ROS workspace...")
+            self.append_output("[info] Please wait for setup to complete before launching the simulation.")
+            return
+        if self.sim_process is not None and self.sim_process.state() == QProcess.ProcessState.Running:
+            self.status_label.setText("Simulation already running")
+            return
+
+        task = self.task_defs.get("Run ROS Sim (Manual Topic Control)")
+        if task is None:
+            self.status_label.setText("Manual simulation task missing")
+            self.append_output("[error] Could not find 'Run ROS Sim (Manual Topic Control)' in .vscode/tasks.json")
+            return
+
+        program = task.get("command")
+        args = task.get("args", [])
+        if not isinstance(program, str) or not isinstance(args, list) or not all(
+            isinstance(arg, str) for arg in args
+        ):
+            self.status_label.setText("Invalid manual simulation task")
+            self.append_output("[error] Manual simulation task has invalid command or args.")
+            return
+
+        self.sim_process = self.start_process("Run ROS Sim (Manual Topic Control)", program, args)
+        if self.ros_sim_widget is not None:
+            QTimer.singleShot(2500, self.ros_sim_widget.mark_simulation_running)
+
+    def _stop_simulation(self) -> None:
+        task = self.task_defs.get("Stop ROS Sim")
+        if task is not None:
+            program = task.get("command")
+            args = task.get("args", [])
+            if isinstance(program, str) and isinstance(args, list) and all(isinstance(arg, str) for arg in args):
+                self.start_process("Stop ROS Sim", program, args)
+
+        if self.sim_process is not None and self.sim_process.state() == QProcess.ProcessState.Running:
+            self.sim_process.terminate()
+            if not self.sim_process.waitForFinished(2000):
+                self.sim_process.kill()
+                self.sim_process.waitForFinished(1000)
+
+        self.sim_process = None
+        if self.ros_sim_widget is not None:
+            self.ros_sim_widget.mark_simulation_stopped()
+
+    def _run_setup_on_startup(self) -> None:
+        """Run the ROS setup task on app startup."""
+        task = self.task_defs.get("Setup ROS Sim (WSL)")
+        if task is None:
+            self.append_output("[warning] Setup task not found in tasks.json")
+            self.setup_complete = True
+            if self.ros_sim_widget is not None:
+                self.ros_sim_widget.set_setup_ready(True, "task missing, launch enabled")
+            return
+
+        program = task.get("command")
+        args = task.get("args", [])
+        if not isinstance(program, str) or not isinstance(args, list):
+            self.append_output("[error] Invalid setup task definition")
+            self.setup_complete = True
+            if self.ros_sim_widget is not None:
+                self.ros_sim_widget.set_setup_ready(True, "invalid setup task, launch enabled")
+            return
+
+        resolved_program, resolved_args = self._resolve_task_invocation(program, args)
+
+        self.append_output("[info] Running ROS workspace setup on startup...")
+        self.status_label.setText("Setting up ROS workspace...")
+        if self.ros_sim_widget is not None:
+            self.ros_sim_widget.set_setup_ready(False, "building ROS workspace")
+        if hasattr(self, "bottom_drawer") and not self.bottom_drawer.is_open:
+            self.bottom_drawer.set_open(True)
+
+        process = QProcess(self)
+        process.setWorkingDirectory(str(self.repo_root))
+        process.setProgram(resolved_program)
+        process.setArguments(resolved_args)
+        self.setup_process = process
+        self.running_processes.append(process)
+
+        def on_setup_finished(exit_code, exit_status):
+            if exit_status == QProcess.ExitStatus.NormalExit and exit_code == 0:
+                self.append_output("[success] ROS workspace setup complete!")
+                self.status_label.setText("Ready - ROS workspace built successfully")
+                self.setup_complete = True
+                if self.ros_sim_widget is not None:
+                    self.ros_sim_widget.set_setup_ready(True, "workspace ready")
+            else:
+                self.append_output(f"[error] Setup failed with exit code {exit_code}")
+                self.status_label.setText("Setup failed - check output")
+                self.setup_complete = False
+                if self.ros_sim_widget is not None:
+                    self.ros_sim_widget.set_setup_ready(False, "build failed")
+
+        process.readyReadStandardOutput.connect(lambda p=process: self._read_process_output(p, False))
+        process.readyReadStandardError.connect(lambda p=process: self._read_process_output(p, True))
+        process.finished.connect(on_setup_finished)
+        process.errorOccurred.connect(lambda error: self._process_error("Setup ROS Sim (WSL)", error))
+        process.start()
 
     def update_system_monitors(self) -> None:
         if psutil is not None:
@@ -788,6 +948,7 @@ class MainWindow(QMainWindow):
             self.sidebar_toggle_button.setToolTip("Expand sidebar")
             self.sidebar_title.hide()
             self.menu_nav_btn.setText("⌂")
+            self.sim_nav_btn.setText("🚁")
             self.airflow_nav_btn.setText("🌀")
             self.output_nav_btn.setText("▤")
         else:
@@ -797,6 +958,7 @@ class MainWindow(QMainWindow):
             self.sidebar_toggle_button.setToolTip("Collapse sidebar")
             self.sidebar_title.show()
             self.menu_nav_btn.setText("⌂  Menu")
+            self.sim_nav_btn.setText("🚁  Simulation")
             self.airflow_nav_btn.setText("🌀  Airflow")
             self.output_nav_btn.setText("▤  Output")
 
@@ -889,6 +1051,18 @@ class MainWindow(QMainWindow):
         self.right_drawer.sync_geometry()
         self.top_drawer.sync_geometry()
         self.bottom_drawer.sync_geometry()
+
+    def closeEvent(self, event) -> None:  # type: ignore[override]
+        """Clean up resources on app close."""
+        if self.ros_sim_widget is not None:
+            self.ros_sim_widget.cleanup()
+        # Stop all running processes
+        for process in self.running_processes:
+            if process.state() == QProcess.ProcessState.Running:
+                process.terminate()
+                if not process.waitForFinished(3000):
+                    process.kill()
+        super().closeEvent(event)
 
     def resizeEvent(self, event) -> None:  # type: ignore[override]
         super().resizeEvent(event)
