@@ -53,9 +53,9 @@ shapes = [
            'packing_efficiency',0.97, ...
            'structure_penalty',0.0025), ...
 
-    struct('name','Cigar', ...
-           'aspect',[2.6 0.85 0.85], ...
-           'cd_xyz',[0.55 1.05 1.05], ...
+    struct('name','Cuboid', ...
+            'aspect',[1.0 1.0 1.0], ...
+            'cd_xyz',[1.00 1.00 1.00], ...
            'packing_efficiency',0.94, ...
            'structure_penalty',0.0030), ...
 
@@ -119,7 +119,7 @@ for s = 1:nShapes
             power_ratio = (max(F_res, 1e-8) / W_total)^(3/2);
             endurance_factor(i,j,s) = 1 / max(power_ratio, 1e-8);
 
-            [L, Wd, H] = shape_dimensions_from_volume(volume_vec(j), shapes(s).aspect);
+            [L, Wd, H] = shape_dimensions_from_volume(volume_vec(j), shapes(s).aspect, shapes(s).name);
 
             A_yz = Wd * H;
             A_xz = L * H;
@@ -233,6 +233,61 @@ try
 catch
     anova_text = 'ANOVA could not be completed. This may require the Statistics Toolbox.';
 end
+
+%% ------------------------------------------------------------------------
+% SHARED RESULTS EXPORT (CSV + PNG)
+% -------------------------------------------------------------------------
+
+results_dir = matlab_results_dir();
+
+shape_rows = [];
+for s = 1:nShapes
+    for i = 1:nMass
+        if ~isnan(best_volume(i,s)) && ~isnan(best_endurance(i,s)) && ~isnan(best_score(i,s))
+            shape_rows = [shape_rows; i, s, mass_vec(i)*1000, best_volume(i,s)*1000, best_endurance(i,s), best_score(i,s)]; %#ok<AGROW>
+        end
+    end
+end
+
+shape_analysis_tbl = array2table(shape_rows, 'VariableNames', {'mass_index', 'shape_index', 'mass_g', 'best_volume_L', 'endurance_factor', 'overall_score'});
+shape_analysis_tbl.shape_name = shape_names(shape_analysis_tbl.shape_index)';
+shape_analysis_tbl = movevars(shape_analysis_tbl, 'shape_name', 'After', 'shape_index');
+safe_writetable(shape_analysis_tbl, fullfile(results_dir, 'shape_analysis_results.csv'));
+
+required_volume_tbl = array2table(mass_vec(:) * 1000, 'VariableNames', {'mass_g'});
+for s = 1:nShapes
+    variable_name = matlab.lang.makeValidName([lower(strrep(shape_names{s}, ' ', '_')) '_required_volume_L']);
+    required_volume_tbl.(variable_name) = required_volume_for_target(:, s) * 1000;
+end
+safe_writetable(required_volume_tbl, fullfile(results_dir, 'buoyancy_test_results.csv'));
+
+battery_life_tbl = array2table(mass_vec(:) * 1000, 'VariableNames', {'mass_g'});
+for s = 1:nShapes
+    variable_name = matlab.lang.makeValidName([lower(strrep(shape_names{s}, ' ', '_')) '_endurance_factor']);
+    battery_life_tbl.(variable_name) = best_endurance(:, s);
+end
+safe_writetable(battery_life_tbl, fullfile(results_dir, 'battery_life_results.csv'));
+
+fig_battery = figure('Name', 'Battery Life: Endurance Factor vs Mass', ...
+    'Color', 'w', 'Position', [200 200 820 480], 'Visible', 'off');
+ax_bat = axes(fig_battery);
+hold(ax_bat, 'on');
+line_styles = {'-o', '-s', '-^', '-d'};
+for s = 1:nShapes
+    valid = ~isnan(best_endurance(:, s));
+    plot(ax_bat, mass_vec(valid)*1000, best_endurance(valid, s), ...
+        line_styles{mod(s-1, numel(line_styles))+1}, ...
+        'DisplayName', shape_names{s}, 'LineWidth', 1.6);
+end
+hold(ax_bat, 'off');
+xlabel(ax_bat, 'System mass [g]');
+ylabel(ax_bat, 'Endurance factor [-]  (higher = longer flight)');
+title(ax_bat, 'Battery Life: Endurance Factor vs System Mass');
+legend(ax_bat, 'Location', 'northeast');
+grid(ax_bat, 'on');
+box(ax_bat, 'on');
+safe_exportgraphics(fig_battery, fullfile(results_dir, 'battery_life_results.png'));
+close(fig_battery);
 
 %% ------------------------------------------------------------------------
 % COMMAND WINDOW SUMMARY
@@ -478,6 +533,8 @@ end
 % -------------------------------------------------------------------------
 
 update_all_tabs();
+drawnow;
+safe_exportgraphics(fig, fullfile(results_dir, 'relevant_graph_outputs.png'));
 
 %% ------------------------------------------------------------------------
 % NESTED CALLBACKS
@@ -525,7 +582,7 @@ update_all_tabs();
                 power_ratio = (max(F_res, 1e-8) / W_total)^(3/2);
                 endu_vec(j) = 1 / max(power_ratio, 1e-8);
 
-                [L, Wd, H] = shape_dimensions_from_volume(volume_vec(j), shapes(s).aspect);
+                [L, Wd, H] = shape_dimensions_from_volume(volume_vec(j), shapes(s).aspect, shapes(s).name);
 
                 A_yz = Wd * H;
                 A_xz = L * H;
@@ -590,7 +647,7 @@ update_all_tabs();
                 ['Not feasible within current envelope size constraint (max = ' num2str(max_vol_L, '%.1f') ' L).'] ...
                 });
         else
-            [L, Wd, H] = shape_dimensions_from_volume(V_req, shapes(shapeIdx).aspect);
+            [L, Wd, H] = shape_dimensions_from_volume(V_req, shapes(shapeIdx).aspect, shapes(shapeIdx).name);
             S = surface_area_from_volume(V_req, shapes(shapeIdx).aspect, shapes(shapeIdx).name);
             ratio = S / V_req;
 
@@ -695,11 +752,11 @@ update_all_tabs();
                 continue;
             end
 
-            [L, Wd, H] = shape_dimensions_from_volume(V_here, shapes(s).aspect);
+            [L, Wd, H] = shape_dimensions_from_volume(V_here, shapes(s).aspect, shapes(s).name);
             dims = [L, Wd, H];
 
             [Xresp, Yresp, Zresp, response_map, metrics] = ...
-                disturbance_surface_metrics_3d(dims, shapes(s).cd_xyz, 56, 32);
+                disturbance_surface_metrics_3d(dims, shapes(s).cd_xyz, shapes(s).name, 56, 32);
 
             all_metrics(s,1) = metrics.mean_response;
             all_metrics(s,2) = metrics.worst_response;
@@ -707,30 +764,35 @@ update_all_tabs();
             all_metrics(s,4) = metrics.stability_score;
 
             if s == shapeIdx
-                [Xshape, Yshape, Zshape] = shape_surface_from_dims(shapes(s).name, dims, 50);
-
                 char_scale = max(dims) / 2;
                 Xenv = char_scale * Xresp;
                 Yenv = char_scale * Yresp;
                 Zenv = char_scale * Zresp;
 
-                surf(ax3a, Xshape, Yshape, Zshape, ...
-                    'EdgeColor', 'none', ...
-                    'FaceAlpha', 0.18, ...
-                    'FaceColor', [0.7 0.7 0.7]);
+                if strcmpi(shapes(s).name, 'cuboid')
+                    draw_cuboid_on_axes(ax3a, dims, 0.18, [0.7 0.7 0.7]);
+                else
+                    [Xshape, Yshape, Zshape] = shape_surface_from_dims(shapes(s).name, dims, 50);
+                    surf(ax3a, Xshape, Yshape, Zshape, ...
+                        'EdgeColor', 'none', ...
+                        'FaceAlpha', 0.18, ...
+                        'FaceColor', [0.7 0.7 0.7]);
+                end
                 hold(ax3a, 'on');
 
                 surf(ax3a, Xenv, Yenv, Zenv, response_map, ...
                     'EdgeColor', 'none', 'FaceAlpha', 0.92);
 
                 hold(ax3a, 'off');
-                axis(ax3a, 'equal');
                 grid(ax3a, 'on');
                 xlabel(ax3a, 'X [m]');
                 ylabel(ax3a, 'Y [m]');
                 zlabel(ax3a, 'Z [m]');
                 title(ax3a, sprintf('3D disturbance envelope: %s', shapes(s).name));
                 view(ax3a, 3);
+                env_half_span = max(abs([Xenv(:); Yenv(:); Zenv(:)]));
+                shape_half_span = max(dims) / 2;
+                set_square_axes_with_padding(ax3a, max(env_half_span, shape_half_span), 1.18);
                 colormap(ax3a, turbo);
                 cb = colorbar(ax3a);
                 cb.Label.String = 'Relative disturbance response [-]';
@@ -808,12 +870,22 @@ function F_b = buoyant_force(V, rho_air, rho_helium, g)
 F_b = (rho_air - rho_helium) * g * V;
 end
 
-function [L, W, H] = shape_dimensions_from_volume(V, aspect)
+function [L, W, H] = shape_dimensions_from_volume(V, aspect, shapeName)
+if nargin < 3
+    shapeName = '';
+end
+
 a = aspect(1);
 b = aspect(2);
 c = aspect(3);
 
-k = ((6 * V) / (pi * a * b * c))^(1/3);
+if strcmpi(shapeName, 'cuboid')
+    % Cuboid volume model: V = L*W*H with preserved aspect ratios.
+    k = (V / (a * b * c))^(1/3);
+else
+    % Ellipsoid/sphere volume model: V = (pi/6)*L*W*H with preserved aspect ratios.
+    k = ((6 * V) / (pi * a * b * c))^(1/3);
+end
 
 L = k * a;
 W = k * b;
@@ -832,9 +904,12 @@ end
 end
 
 function plot_shape_on_axes(ax, shapeName, dims)
-[X, Y, Z] = shape_surface_from_dims(shapeName, dims, 50);
-
-surf(ax, X, Y, Z, 'EdgeColor', 'none', 'FaceAlpha', 0.95);
+if strcmpi(shapeName, 'cuboid')
+    draw_cuboid_on_axes(ax, dims, 0.95);
+else
+    [X, Y, Z] = shape_surface_from_dims(shapeName, dims, 50);
+    surf(ax, X, Y, Z, 'EdgeColor', 'none', 'FaceAlpha', 0.95);
+end
 
 axis(ax, 'equal');
 xlabel(ax, 'X [m]');
@@ -843,6 +918,7 @@ zlabel(ax, 'Z [m]');
 title(ax, ['3D envelope view: ' shapeName]);
 grid(ax, 'on');
 view(ax, 3);
+set_square_axes_with_padding(ax, max(dims) / 2, 1.22);
 camlight(ax, 'headlight');
 lighting(ax, 'gouraud');
 end
@@ -860,7 +936,7 @@ switch lower(shapeName)
         Y = r * Ys;
         Z = r * Zs;
 
-    case {'prolate ellipsoid', 'flattened ellipsoid', 'cigar'}
+    case {'prolate ellipsoid', 'flattened ellipsoid'}
         a = L/2;
         b = W/2;
         c = H/2;
@@ -875,33 +951,29 @@ end
 end
 
 function S = surface_area_from_volume(V, aspect, shapeName)
-a = aspect(1);
-b = aspect(2);
-c = aspect(3);
-
-k = ((6 * V) / (pi * a * b * c))^(1/3);
-L = k * a;
-W = k * b;
-H = k * c;
+[L, W, H] = shape_dimensions_from_volume(V, aspect, shapeName);
 
 switch lower(shapeName)
     case 'sphere'
         r = L/2;
         S = 4 * pi * r^2;
 
-    case {'prolate ellipsoid', 'flattened ellipsoid', 'cigar'}
+    case {'prolate ellipsoid', 'flattened ellipsoid'}
         p = 1.6075;
         S = 4 * pi * (((L/2)^p * (W/2)^p + (L/2)^p * (H/2)^p + (W/2)^p * (H/2)^p)/3)^(1/p);
+
+    case 'cuboid'
+        S = 2 * (L*W + L*H + W*H);
 
     otherwise
         S = NaN;
 end
 end
 
-function [Xresp, Yresp, Zresp, response_map, metrics] = disturbance_surface_metrics_3d(dims, cd_xyz, nAz, nEl)
-a = dims(1) / 2;
-b = dims(2) / 2;
-c = dims(3) / 2;
+function [Xresp, Yresp, Zresp, response_map, metrics] = disturbance_surface_metrics_3d(dims, cd_xyz, shapeName, nAz, nEl)
+if nargin < 3
+    shapeName = '';
+end
 
 az = linspace(0, 2*pi, nAz);
 el = linspace(-pi/2, pi/2, nEl);
@@ -911,7 +983,14 @@ nx = cos(EL) .* cos(AZ);
 ny = cos(EL) .* sin(AZ);
 nz = sin(EL);
 
-Aproj = ellipsoid_projected_area(a, b, c, nx, ny, nz);
+if strcmpi(shapeName, 'cuboid')
+    Aproj = cuboid_projected_area(dims, nx, ny, nz);
+else
+    a = dims(1) / 2;
+    b = dims(2) / 2;
+    c = dims(3) / 2;
+    Aproj = ellipsoid_projected_area(a, b, c, nx, ny, nz);
+end
 Cd_dir = directional_cd_from_axes(cd_xyz, nx, ny, nz);
 
 response_map = Aproj .* Cd_dir;
@@ -939,10 +1018,96 @@ denom = sqrt((a .* nx).^2 + (b .* ny).^2 + (c .* nz).^2);
 Aproj = pi * a * b * c ./ max(denom, eps);
 end
 
+function Aproj = cuboid_projected_area(dims, nx, ny, nz)
+L = dims(1);
+W = dims(2);
+H = dims(3);
+Aproj = abs(nx) * (W * H) + abs(ny) * (L * H) + abs(nz) * (L * W);
+end
+
+function draw_cuboid_on_axes(ax, dims, faceAlpha, faceColor)
+[X, Y, Z] = rounded_cuboid_surface_from_dims(dims, 96, 64, 0.50);
+
+if nargin < 4 || isempty(faceColor)
+    surf(ax, X, Y, Z, ...
+        'EdgeColor', 'none', ...
+        'FaceAlpha', faceAlpha);
+else
+    surf(ax, X, Y, Z, ...
+        'EdgeColor', 'none', ...
+        'FaceColor', faceColor, ...
+        'FaceAlpha', faceAlpha);
+end
+end
+
+function [X, Y, Z] = rounded_cuboid_surface_from_dims(dims, nAz, nEl, roundness)
+L = dims(1);
+W = dims(2);
+H = dims(3);
+
+if nargin < 2
+    nAz = 64;
+end
+if nargin < 3
+    nEl = 40;
+end
+if nargin < 4
+    roundness = 0.38;
+end
+
+eta = linspace(-pi/2, pi/2, nEl);
+omega = linspace(-pi, pi, nAz);
+[OMEGA, ETA] = meshgrid(omega, eta);
+
+cx = sign(cos(ETA)) .* abs(cos(ETA)).^roundness;
+X = (L/2) .* cx .* sign(cos(OMEGA)) .* abs(cos(OMEGA)).^roundness;
+Y = (W/2) .* cx .* sign(sin(OMEGA)) .* abs(sin(OMEGA)).^roundness;
+Z = (H/2) .* sign(sin(ETA)) .* abs(sin(ETA)).^roundness;
+end
+
+function set_square_axes_with_padding(ax, baseHalfSpan, padFactor)
+if nargin < 3
+    padFactor = 1.20;
+end
+halfSpan = max(baseHalfSpan, eps) * padFactor;
+axis(ax, 'equal');
+pbaspect(ax, [1 1 1]);
+xlim(ax, [-halfSpan, halfSpan]);
+ylim(ax, [-halfSpan, halfSpan]);
+zlim(ax, [-halfSpan, halfSpan]);
+end
+
 function Cd_dir = directional_cd_from_axes(cd_xyz, nx, ny, nz)
 wx = abs(nx);
 wy = abs(ny);
 wz = abs(nz);
 wsum = wx + wy + wz + eps;
 Cd_dir = (cd_xyz(1) * wx + cd_xyz(2) * wy + cd_xyz(3) * wz) ./ wsum;
+end
+
+function output_dir = matlab_results_dir()
+script_path = mfilename('fullpath');
+project_root = fileparts(fileparts(fileparts(script_path)));
+output_dir = fullfile(project_root, 'results', 'matlab_analysis');
+if ~exist(output_dir, 'dir')
+    mkdir(output_dir);
+end
+end
+
+function safe_writetable(tbl, output_path)
+output_folder = fileparts(output_path);
+if ~exist(output_folder, 'dir')
+    mkdir(output_folder);
+end
+writetable(tbl, output_path);
+fprintf('Saved table: %s\n', output_path);
+end
+
+function safe_exportgraphics(fig_handle, output_path)
+output_folder = fileparts(output_path);
+if ~exist(output_folder, 'dir')
+    mkdir(output_folder);
+end
+exportgraphics(fig_handle, output_path, 'Resolution', 200);
+fprintf('Saved figure: %s\n', output_path);
 end
