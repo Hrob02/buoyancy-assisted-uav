@@ -21,6 +21,10 @@ fprintf('=== Buoyancy-Assisted UAV Envelope Trade Study ===\n');
 g = 9.81;                  % [m/s^2]
 rho_air = 1.225;           % [kg/m^3]
 rho_helium = 0.164;        % [kg/m^3]
+% Arbitrary reference envelope surface density [kg/m^2].
+% Typical thin polymer film; absolute value is arbitrary — shapes are
+% compared at the same sigma_ref so it cancels in relative rankings.
+sigma_ref = 0.05;          % [kg/m^2]
 
 % Mass range [kg]
 mass_vec = linspace(0.001, 0.100, 100);   % 1 g to 100 g
@@ -94,7 +98,7 @@ target_disturb_aniso = NaN(nMass, nShapes);
 target_disturb_index = NaN(nMass, nShapes);
 target_sa_to_vol = NaN(nMass, nShapes);
 target_struct_iq = NaN(nMass, nShapes);
-target_struct_penalty = NaN(nMass, nShapes);
+target_struct_mass_frac = NaN(nMass, nShapes);
 
 required_volume_for_target = NaN(nMass, nShapes);
 best_volume                = NaN(nMass, nShapes);
@@ -168,7 +172,10 @@ for s = 1:nShapes
             S = surface_area_from_volume(V_req, shapes(s).aspect, shapes(s).name);
             target_sa_to_vol(i,s) = S / V_req;
             target_struct_iq(i,s) = isoperimetric_quotient(V_req, S);
-            target_struct_penalty(i,s) = 1 - target_struct_iq(i,s);
+            % Structural mass fraction: envelope mass (sigma_ref * S) relative to
+            % total system mass. V_req scales with mass, so S ~ V^(2/3) ~ mass^(2/3),
+            % meaning this ratio varies with mass and differs between shapes.
+            target_struct_mass_frac(i,s) = (sigma_ref * S) / mass_vec(i);
 
             [~, ~, ~, ~, metrics] = disturbance_surface_metrics_3d(dims, shapes(s).cd_xyz, shapes(s).name, 56, 32);
             target_disturb_mean(i,s) = metrics.mean_response;
@@ -206,35 +213,76 @@ end
 % PER-METRIC STATISTICS
 % -------------------------------------------------------------------------
 
-metric_titles = {'Stability Disturbance Index', 'Surface Area / Volume', 'Structural Penalty'};
-metric_data = {target_disturb_index, target_sa_to_vol, target_struct_penalty};
+metric_titles = {'Stability Disturbance Index', 'Surface Area / Volume', 'Structural Mass Fraction'};
+metric_data = {target_disturb_index, target_sa_to_vol, target_struct_mass_frac};
 metric_anova_text = cell(1, numel(metric_data));
 metric_anova_p = NaN(1, numel(metric_data));
 metric_pairwise_sig_count = zeros(1, numel(metric_data));
 metric_sig_pairs_text = repmat({'None'}, 1, numel(metric_data));
+metric_stat_note = repmat({'ANOVA + Tukey-Kramer applied.'}, 1, numel(metric_data));
 pairwise_rows = {};
 
 for m = 1:numel(metric_data)
     metric_values = [];
     metric_labels = {};
+    vals_by_shape = cell(nShapes, 1);
+    group_counts = zeros(nShapes, 1);
+    group_var = zeros(nShapes, 1);
     for s = 1:nShapes
         vals = metric_data{m}(:,s);
         vals = vals(~isnan(vals));
+        vals_by_shape{s} = vals(:);
+        group_counts(s) = numel(vals);
+        if numel(vals) >= 2
+            group_var(s) = var(vals, 0);
+        else
+            group_var(s) = 0;
+        end
         metric_values = [metric_values; vals(:)]; %#ok<AGROW>
         metric_labels = [metric_labels; repmat({shapes(s).name}, numel(vals), 1)]; %#ok<AGROW>
     end
 
+    % If the metric is effectively deterministic by shape (or under-replicated),
+    % inferential p-values are not meaningful because ANOVA assumptions fail.
+    has_replicates = all(group_counts >= 2);
+    has_within_group_variation = any(group_var > 1e-12);
+    if ~has_replicates || ~has_within_group_variation
+        metric_anova_p(m) = NaN;
+        metric_pairwise_sig_count(m) = 0;
+        metric_sig_pairs_text{m} = 'None';
+        metric_stat_note{m} = 'Deterministic/low-variance metric: inferential p-values not reported.';
+        metric_anova_text{m} = sprintf('%s: inferential ANOVA skipped (deterministic or under-replicated data).', metric_titles{m});
+
+        for a = 1:(nShapes-1)
+            for b = (a+1):nShapes
+                mean_a = mean(vals_by_shape{a});
+                mean_b = mean(vals_by_shape{b});
+                pairwise_rows(end+1, :) = { ...
+                    metric_titles{m}, ...
+                    shapes(a).name, ...
+                    shapes(b).name, ...
+                    mean_a - mean_b, ...
+                    NaN, ...
+                    NaN, ...
+                    NaN, ...
+                    false}; %#ok<AGROW>
+            end
+        end
+        continue;
+    end
+
     try
         [p_val, ~, anova_stats] = anova1(metric_values, metric_labels, 'off');
-        metric_anova_p(m) = p_val;
+        p_val_safe = max(p_val, realmin('double'));
+        metric_anova_p(m) = p_val_safe;
         sig_pair_labels = {};
         seen_pair_keys = {};
-        if p_val < anova_alpha
+        if p_val_safe < anova_alpha
             metric_anova_text{m} = sprintf('%s: significant by ANOVA (p = %s, alpha = %s).', ...
-                metric_titles{m}, format_p_value(p_val), format_p_value(anova_alpha));
+                metric_titles{m}, format_p_value(p_val_safe), format_p_value(anova_alpha));
         else
             metric_anova_text{m} = sprintf('%s: not significant by ANOVA (p = %s, alpha = %s).', ...
-                metric_titles{m}, format_p_value(p_val), format_p_value(anova_alpha));
+                metric_titles{m}, format_p_value(p_val_safe), format_p_value(anova_alpha));
         end
 
         % Pairwise shape comparisons for this metric (Tukey-Kramer by default).
@@ -251,7 +299,7 @@ for m = 1:numel(metric_data)
                 end
                 seen_pair_keys{end+1} = pair_key; %#ok<AGROW>
 
-                p_pair = comparison(r,6);
+                p_pair = max(comparison(r,6), realmin('double'));
                 sig_pair = p_pair < anova_alpha;
                 metric_pairwise_sig_count(m) = metric_pairwise_sig_count(m) + sig_pair;
                 if sig_pair
@@ -274,6 +322,7 @@ for m = 1:numel(metric_data)
         end
     catch
         metric_anova_text{m} = sprintf('%s: ANOVA unavailable (Statistics Toolbox may be required).', metric_titles{m});
+        metric_stat_note{m} = 'ANOVA unavailable (Statistics Toolbox may be required).';
     end
 end
 
@@ -295,14 +344,14 @@ for s = 1:nShapes
                 best_endurance(i,s), ...
                 target_disturb_index(i,s), ...
                 target_sa_to_vol(i,s), ...
-                target_struct_penalty(i,s)]; %#ok<AGROW>
+                target_struct_mass_frac(i,s)]; %#ok<AGROW>
         end
     end
 end
 
 shape_analysis_tbl = array2table(shape_rows, 'VariableNames', {
     'mass_index', 'shape_index', 'mass_g', 'target_volume_L', 'endurance_factor_at_target_BR', ...
-    'stability_disturbance_index', 'surface_area_to_volume', 'structural_penalty'});
+    'stability_disturbance_index', 'surface_area_to_volume', 'structural_mass_fraction'});
 shape_analysis_tbl.shape_name = shape_names(shape_analysis_tbl.shape_index)';
 shape_analysis_tbl = movevars(shape_analysis_tbl, 'shape_name', 'After', 'shape_index');
 safe_writetable(shape_analysis_tbl, fullfile(results_dir, 'shape_analysis_results.csv'));
@@ -317,7 +366,7 @@ else
 end
 safe_writetable(pairwise_tbl, fullfile(results_dir, 'metric_pairwise_comparisons.csv'));
 
-summary_rows = cell(numel(metric_titles), 6);
+summary_rows = cell(numel(metric_titles), 7);
 for m = 1:numel(metric_titles)
     anova_sig = ~isnan(metric_anova_p(m)) && (metric_anova_p(m) < anova_alpha);
     metric_pairs = pairwise_tbl(strcmp(string(pairwise_tbl.metric), string(metric_titles{m})), :);
@@ -343,10 +392,11 @@ for m = 1:numel(metric_titles)
     summary_rows{m,4} = metric_pairwise_sig_count(m);
     summary_rows{m,5} = n_total_pairs;
     summary_rows{m,6} = sig_pairs_text;
+    summary_rows{m,7} = metric_stat_note{m};
 end
 
 metric_summary_tbl = cell2table(summary_rows, 'VariableNames', {
-    'metric', 'anova_p_value', 'anova_significant_at_alpha', 'n_significant_pairs', 'n_total_pairs', 'significant_pairs'});
+    'metric', 'anova_p_value', 'anova_significant_at_alpha', 'n_significant_pairs', 'n_total_pairs', 'significant_pairs', 'statistical_note'});
 safe_writetable(metric_summary_tbl, fullfile(results_dir, 'metric_significance_summary.csv'));
 
 required_volume_tbl = array2table(mass_vec(:) * 1000, 'VariableNames', {'mass_g'});
@@ -595,9 +645,9 @@ title(ax4b, 'Surface Area to Volume');
 grid(ax4b, 'on');
 
 ax4c = axes('Parent', tab4, 'Units', 'normalized', 'Position', [0.68 0.56 0.26 0.34]);
-boxplot(ax4c, target_struct_penalty, 'Labels', shape_names);
-ylabel(ax4c, 'Penalty [-] (lower better)');
-title(ax4c, 'Structural Penalty');
+boxplot(ax4c, target_struct_mass_frac, 'Labels', shape_names);
+ylabel(ax4c, 'Struct. mass fraction [-] (lower better)');
+title(ax4c, 'Structural Mass Fraction');
 grid(ax4c, 'on');
 
 stats_lines = {'Independent metric analysis (no composite score):'; ' '};
@@ -614,7 +664,7 @@ for s = 1:nShapes
         shape_names{s}, ...
         mean(target_disturb_index(:,s), 'omitnan'), ...
         mean(target_sa_to_vol(:,s), 'omitnan'), ...
-        mean(target_struct_penalty(:,s), 'omitnan')); %#ok<SAGROW>
+        mean(target_struct_mass_frac(:,s), 'omitnan')); %#ok<SAGROW>
 end
 
 uicontrol('Parent', tab4, 'Style', 'listbox', ...
