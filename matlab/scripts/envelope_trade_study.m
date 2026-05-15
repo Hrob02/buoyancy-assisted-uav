@@ -35,6 +35,9 @@ volume_vec = linspace(0.001, 0.100, 200);   % 1 L to 100 L
 % Target buoyancy ratio
 target_buoyancy_ratio = 0.99;
 
+% Statistical significance threshold for ANOVA reporting
+anova_alpha = 0.005;
+
 % Crazyflie baseline
 baseline_mass_g = 28;
 baseline_time_min = 7;
@@ -44,26 +47,22 @@ shapes = [
     struct('name','Sphere', ...
            'aspect',[1.0 1.0 1.0], ...
            'cd_xyz',[0.90 0.90 0.90], ...
-           'packing_efficiency',1.00, ...
-           'structure_penalty',0.0020), ...
+        'packing_efficiency',1.00), ...
 
     struct('name','Prolate Ellipsoid', ...
            'aspect',[1.8 1.0 1.0], ...
            'cd_xyz',[0.65 0.95 0.95], ...
-           'packing_efficiency',0.97, ...
-           'structure_penalty',0.0025), ...
+        'packing_efficiency',0.97), ...
 
     struct('name','Cuboid', ...
             'aspect',[1.0 1.0 1.0], ...
             'cd_xyz',[1.00 1.00 1.00], ...
-           'packing_efficiency',0.94, ...
-           'structure_penalty',0.0030), ...
+        'packing_efficiency',0.94), ...
 
     struct('name','Flattened Ellipsoid', ...
            'aspect',[1.6 1.3 0.7], ...
            'cd_xyz',[0.82 0.92 1.08], ...
-           'packing_efficiency',0.93, ...
-           'structure_penalty',0.0028) ...
+        'packing_efficiency',0.93) ...
 ];
 
 nShapes = numel(shapes);
@@ -87,13 +86,19 @@ disturb_x           = zeros(nMass, nVol, nShapes);
 disturb_y           = zeros(nMass, nVol, nShapes);
 disturb_z           = zeros(nMass, nVol, nShapes);
 disturb_total       = zeros(nMass, nVol, nShapes);
-score_raw           = NaN(nMass, nVol, nShapes);
 surf_area_ratio     = zeros(nMass, nVol, nShapes);
+structural_efficiency = zeros(nMass, nVol, nShapes);
+target_disturb_mean = NaN(nMass, nShapes);
+target_disturb_worst = NaN(nMass, nShapes);
+target_disturb_aniso = NaN(nMass, nShapes);
+target_disturb_index = NaN(nMass, nShapes);
+target_sa_to_vol = NaN(nMass, nShapes);
+target_struct_iq = NaN(nMass, nShapes);
+target_struct_penalty = NaN(nMass, nShapes);
 
 required_volume_for_target = NaN(nMass, nShapes);
 best_volume                = NaN(nMass, nShapes);
 best_endurance             = NaN(nMass, nShapes);
-best_score                 = NaN(nMass, nShapes);
 best_disturb_x             = NaN(nMass, nShapes);
 best_disturb_y             = NaN(nMass, nShapes);
 best_disturb_z             = NaN(nMass, nShapes);
@@ -106,7 +111,7 @@ for s = 1:nShapes
     for i = 1:nMass
         for j = 1:nVol
 
-            m_total = mass_vec(i) + shapes(s).structure_penalty;
+            m_total = mass_vec(i);
             W_total = m_total * g;
 
             V_eff = volume_vec(j) * shapes(s).packing_efficiency;
@@ -138,100 +143,138 @@ for s = 1:nShapes
 
             S = surface_area_from_volume(volume_vec(j), shapes(s).aspect, shapes(s).name);
             surf_area_ratio(i,j,s) = S / volume_vec(j);
+            structural_efficiency(i,j,s) = isoperimetric_quotient(volume_vec(j), S);
         end
     end
 end
 
 %% ------------------------------------------------------------------------
-% SCORE CALCULATION
+% SHAPE EVALUATION AT TARGET BUOYANCY RATIO
 % -------------------------------------------------------------------------
 
-buoy_norm = normalise_01(buoyancy_ratio);
-endu_norm = normalise_01(endurance_factor);
-dist_norm = normalise_01(disturb_total);
-surf_area_ratio_norm = normalise_01(surf_area_ratio);
-max_struct_pen = max([shapes.structure_penalty]);
-
 for s = 1:nShapes
-    struct_pen_norm = shapes(s).structure_penalty / max_struct_pen;
-
     for i = 1:nMass
-        for j = 1:nVol
-            br = buoyancy_ratio(i,j,s);
-            feasible = (br >= 0.55) && (br <= 1.10);
+        % Evaluate each shape at the controlled operating point BR = target_buoyancy_ratio.
+        V_req = (target_buoyancy_ratio * mass_vec(i)) / ((rho_air - rho_helium) * shapes(s).packing_efficiency);
 
-            if feasible
-                score_raw(i,j,s) = ...
-                    0.30 * buoy_norm(i,j,s) + ...
-                    0.35 * endu_norm(i,j,s) - ...
-                    0.20 * dist_norm(i,j,s) - ...
-                    0.10 * surf_area_ratio_norm(i,j,s) - ...
-                    0.05 * struct_pen_norm;
+        if V_req <= max(volume_vec)
+            required_volume_for_target(i,s) = V_req;
+            best_volume(i,s) = V_req;
+
+            best_endurance(i,s) = endurance_from_buoyancy_ratio(target_buoyancy_ratio);
+
+            [L, Wd, H] = shape_dimensions_from_volume(V_req, shapes(s).aspect, shapes(s).name);
+            dims = [L, Wd, H];
+            S = surface_area_from_volume(V_req, shapes(s).aspect, shapes(s).name);
+            target_sa_to_vol(i,s) = S / V_req;
+            target_struct_iq(i,s) = isoperimetric_quotient(V_req, S);
+            target_struct_penalty(i,s) = 1 - target_struct_iq(i,s);
+
+            [~, ~, ~, ~, metrics] = disturbance_surface_metrics_3d(dims, shapes(s).cd_xyz, shapes(s).name, 56, 32);
+            target_disturb_mean(i,s) = metrics.mean_response;
+            target_disturb_worst(i,s) = metrics.worst_response;
+            target_disturb_aniso(i,s) = metrics.anisotropy;
+
+            target_disturb_index(i,s) = metrics.mean_response .* (1 + 0.7 * metrics.anisotropy) .* ...
+                (1 + 0.3 * (metrics.worst_response / max(metrics.mean_response, eps)));
+        end
+    end
+end
+
+%% ------------------------------------------------------------------------
+% SHAPE METRICS AT CONTROLLED BUOYANCY TARGET
+% -------------------------------------------------------------------------
+
+for i = 1:nMass
+    for s = 1:nShapes
+        if ~isnan(required_volume_for_target(i,s))
+            [L, Wd, H] = shape_dimensions_from_volume(best_volume(i,s), shapes(s).aspect, shapes(s).name);
+            A_yz = Wd * H;
+            A_xz = L * H;
+            A_xy = L * Wd;
+
+            over_buoyant_penalty = max(target_buoyancy_ratio - 1.0, 0);
+
+            best_disturb_x(i,s) = shapes(s).cd_xyz(1) * A_yz * (1 + 0.5 * over_buoyant_penalty);
+            best_disturb_y(i,s) = shapes(s).cd_xyz(2) * A_xz * (1 + 0.5 * over_buoyant_penalty);
+            best_disturb_z(i,s) = shapes(s).cd_xyz(3) * A_xy * (1 + 0.5 * over_buoyant_penalty);
+        end
+    end
+end
+
+%% ------------------------------------------------------------------------
+% PER-METRIC STATISTICS
+% -------------------------------------------------------------------------
+
+metric_titles = {'Stability Disturbance Index', 'Surface Area / Volume', 'Structural Penalty'};
+metric_data = {target_disturb_index, target_sa_to_vol, target_struct_penalty};
+metric_anova_text = cell(1, numel(metric_data));
+metric_anova_p = NaN(1, numel(metric_data));
+metric_pairwise_sig_count = zeros(1, numel(metric_data));
+metric_sig_pairs_text = repmat({'None'}, 1, numel(metric_data));
+pairwise_rows = {};
+
+for m = 1:numel(metric_data)
+    metric_values = [];
+    metric_labels = {};
+    for s = 1:nShapes
+        vals = metric_data{m}(:,s);
+        vals = vals(~isnan(vals));
+        metric_values = [metric_values; vals(:)]; %#ok<AGROW>
+        metric_labels = [metric_labels; repmat({shapes(s).name}, numel(vals), 1)]; %#ok<AGROW>
+    end
+
+    try
+        [p_val, ~, anova_stats] = anova1(metric_values, metric_labels, 'off');
+        metric_anova_p(m) = p_val;
+        sig_pair_labels = {};
+        seen_pair_keys = {};
+        if p_val < anova_alpha
+            metric_anova_text{m} = sprintf('%s: significant by ANOVA (p = %s, alpha = %s).', ...
+                metric_titles{m}, format_p_value(p_val), format_p_value(anova_alpha));
+        else
+            metric_anova_text{m} = sprintf('%s: not significant by ANOVA (p = %s, alpha = %s).', ...
+                metric_titles{m}, format_p_value(p_val), format_p_value(anova_alpha));
+        end
+
+        % Pairwise shape comparisons for this metric (Tukey-Kramer by default).
+        if ~isempty(anova_stats)
+            comparison = multcompare(anova_stats, 'Display', 'off');
+            for r = 1:size(comparison, 1)
+                group_a = anova_stats.gnames{comparison(r,1)};
+                group_b = anova_stats.gnames{comparison(r,2)};
+
+                pair_sorted = sort({group_a, group_b});
+                pair_key = [pair_sorted{1} '|' pair_sorted{2}];
+                if any(strcmp(seen_pair_keys, pair_key))
+                    continue;
+                end
+                seen_pair_keys{end+1} = pair_key; %#ok<AGROW>
+
+                p_pair = comparison(r,6);
+                sig_pair = p_pair < anova_alpha;
+                metric_pairwise_sig_count(m) = metric_pairwise_sig_count(m) + sig_pair;
+                if sig_pair
+                    sig_pair_labels{end+1} = sprintf('%s vs %s (p=%s)', pair_sorted{1}, pair_sorted{2}, format_p_value(p_pair)); %#ok<AGROW>
+                end
+
+                pairwise_rows(end+1, :) = { ...
+                    metric_titles{m}, ...
+                    pair_sorted{1}, ...
+                    pair_sorted{2}, ...
+                    comparison(r,4), ...
+                    comparison(r,3), ...
+                    comparison(r,5), ...
+                    p_pair, ...
+                    sig_pair}; %#ok<AGROW>
             end
         end
-    end
-end
-
-%% ------------------------------------------------------------------------
-% REQUIRED VOLUME FOR TARGET BUOYANCY RATIO
-% -------------------------------------------------------------------------
-
-for s = 1:nShapes
-    for i = 1:nMass
-        idx = find(squeeze(buoyancy_ratio(i,:,s)) >= target_buoyancy_ratio, 1, 'first');
-        if ~isempty(idx)
-            required_volume_for_target(i,s) = volume_vec(idx);
+        if ~isempty(sig_pair_labels)
+            metric_sig_pairs_text{m} = strjoin(sig_pair_labels, '; ');
         end
+    catch
+        metric_anova_text{m} = sprintf('%s: ANOVA unavailable (Statistics Toolbox may be required).', metric_titles{m});
     end
-end
-
-%% ------------------------------------------------------------------------
-% BEST DESIGN PER MASS AND SHAPE
-% -------------------------------------------------------------------------
-
-for s = 1:nShapes
-    for i = 1:nMass
-        row_scores = squeeze(score_raw(i,:,s));
-        [mx, idx_best] = max(row_scores);
-
-        if ~isempty(idx_best) && isfinite(mx)
-            best_volume(i,s)    = volume_vec(idx_best);
-            best_endurance(i,s) = endurance_factor(i,idx_best,s);
-            best_score(i,s)     = score_raw(i,idx_best,s);
-            best_disturb_x(i,s) = disturb_x(i,idx_best,s);
-            best_disturb_y(i,s) = disturb_y(i,idx_best,s);
-            best_disturb_z(i,s) = disturb_z(i,idx_best,s);
-        end
-    end
-end
-
-%% ------------------------------------------------------------------------
-% STATS DATA
-% -------------------------------------------------------------------------
-
-score_values = [];
-shape_labels = {};
-
-for s = 1:nShapes
-    vals = best_score(:,s);
-    vals = vals(~isnan(vals));
-    score_values = [score_values; vals(:)]; %#ok<AGROW>
-    shape_labels = [shape_labels; repmat({shapes(s).name}, numel(vals), 1)]; %#ok<AGROW>
-end
-
-anova_text = 'ANOVA not run.';
-anova_p = NaN;
-anova_stats = [];
-
-try
-    [anova_p, ~, anova_stats] = anova1(score_values, shape_labels, 'off');
-    if anova_p < 0.05
-        anova_text = sprintf('One-way ANOVA found a statistically significant difference between shapes (p = %.4f).', anova_p);
-    else
-        anova_text = sprintf('One-way ANOVA did not find a statistically significant difference between shapes (p = %.4f).', anova_p);
-    end
-catch
-    anova_text = 'ANOVA could not be completed. This may require the Statistics Toolbox.';
 end
 
 %% ------------------------------------------------------------------------
@@ -243,16 +286,68 @@ results_dir = matlab_results_dir();
 shape_rows = [];
 for s = 1:nShapes
     for i = 1:nMass
-        if ~isnan(best_volume(i,s)) && ~isnan(best_endurance(i,s)) && ~isnan(best_score(i,s))
-            shape_rows = [shape_rows; i, s, mass_vec(i)*1000, best_volume(i,s)*1000, best_endurance(i,s), best_score(i,s)]; %#ok<AGROW>
+        if ~isnan(best_volume(i,s)) && ~isnan(best_endurance(i,s))
+            shape_rows = [shape_rows; ...
+                i, ...
+                s, ...
+                mass_vec(i)*1000, ...
+                best_volume(i,s)*1000, ...
+                best_endurance(i,s), ...
+                target_disturb_index(i,s), ...
+                target_sa_to_vol(i,s), ...
+                target_struct_penalty(i,s)]; %#ok<AGROW>
         end
     end
 end
 
-shape_analysis_tbl = array2table(shape_rows, 'VariableNames', {'mass_index', 'shape_index', 'mass_g', 'best_volume_L', 'endurance_factor', 'overall_score'});
+shape_analysis_tbl = array2table(shape_rows, 'VariableNames', {
+    'mass_index', 'shape_index', 'mass_g', 'target_volume_L', 'endurance_factor_at_target_BR', ...
+    'stability_disturbance_index', 'surface_area_to_volume', 'structural_penalty'});
 shape_analysis_tbl.shape_name = shape_names(shape_analysis_tbl.shape_index)';
 shape_analysis_tbl = movevars(shape_analysis_tbl, 'shape_name', 'After', 'shape_index');
 safe_writetable(shape_analysis_tbl, fullfile(results_dir, 'shape_analysis_results.csv'));
+
+if ~isempty(pairwise_rows)
+    pairwise_tbl = cell2table(pairwise_rows, 'VariableNames', {
+        'metric', 'shape_a', 'shape_b', 'mean_diff', 'ci_low', 'ci_high', 'p_value', 'significant_at_alpha'});
+else
+    pairwise_tbl = table('Size', [0, 8], ...
+        'VariableTypes', {'string', 'string', 'string', 'double', 'double', 'double', 'double', 'logical'}, ...
+        'VariableNames', {'metric', 'shape_a', 'shape_b', 'mean_diff', 'ci_low', 'ci_high', 'p_value', 'significant_at_alpha'});
+end
+safe_writetable(pairwise_tbl, fullfile(results_dir, 'metric_pairwise_comparisons.csv'));
+
+summary_rows = cell(numel(metric_titles), 6);
+for m = 1:numel(metric_titles)
+    anova_sig = ~isnan(metric_anova_p(m)) && (metric_anova_p(m) < anova_alpha);
+    metric_pairs = pairwise_tbl(strcmp(string(pairwise_tbl.metric), string(metric_titles{m})), :);
+    n_total_pairs = height(metric_pairs);
+
+    sig_pairs = metric_pairs(metric_pairs.significant_at_alpha, :);
+    if isempty(sig_pairs)
+        sig_pairs_text = 'None';
+    else
+        sig_labels = cell(height(sig_pairs), 1);
+        for r = 1:height(sig_pairs)
+            sig_labels{r} = sprintf('%s vs %s (p=%s)', ...
+                sig_pairs.shape_a{r}, sig_pairs.shape_b{r}, format_p_value(sig_pairs.p_value(r)));
+        end
+        sig_labels = unique(sig_labels, 'stable');
+        sig_pairs_text = strjoin(sig_labels, '; ');
+    end
+    metric_sig_pairs_text{m} = sig_pairs_text;
+
+    summary_rows{m,1} = metric_titles{m};
+    summary_rows{m,2} = metric_anova_p(m);
+    summary_rows{m,3} = anova_sig;
+    summary_rows{m,4} = metric_pairwise_sig_count(m);
+    summary_rows{m,5} = n_total_pairs;
+    summary_rows{m,6} = sig_pairs_text;
+end
+
+metric_summary_tbl = cell2table(summary_rows, 'VariableNames', {
+    'metric', 'anova_p_value', 'anova_significant_at_alpha', 'n_significant_pairs', 'n_total_pairs', 'significant_pairs'});
+safe_writetable(metric_summary_tbl, fullfile(results_dir, 'metric_significance_summary.csv'));
 
 required_volume_tbl = array2table(mass_vec(:) * 1000, 'VariableNames', {'mass_g'});
 for s = 1:nShapes
@@ -295,7 +390,7 @@ close(fig_battery);
 
 fprintf('\n=== Best design summary ===\n');
 fprintf('%-22s %-10s %-15s %-15s %-15s\n', ...
-    'Shape', 'Mass [g]', 'Best Vol [L]', 'Endurance x', 'Score');
+    'Shape', 'Mass [g]', 'Target Vol [L]', 'Endu @ BR target', 'Stab. Idx');
 
 for s = 1:nShapes
     for i = 1:nMass
@@ -305,12 +400,16 @@ for s = 1:nShapes
                 mass_vec(i)*1000, ...
                 best_volume(i,s)*1000, ...
                 best_endurance(i,s), ...
-                best_score(i,s));
+                target_disturb_index(i,s));
         end
     end
 end
 
-fprintf('\n%s\n', anova_text);
+fprintf('\n=== Per-metric ANOVA summary ===\n');
+for m = 1:numel(metric_anova_text)
+    fprintf('%s\n', metric_anova_text{m});
+    fprintf('  Pairwise significant differences: %d\n', metric_pairwise_sig_count(m));
+end
 
 %% ------------------------------------------------------------------------
 % FIGURE + TABS
@@ -325,7 +424,7 @@ tg = uitabgroup(fig);
 tab1 = uitab(tg, 'Title', '3D Shape Viewer');
 tab2 = uitab(tg, 'Title', 'Endurance');
 tab3 = uitab(tg, 'Title', '3D Disturbance');
-tab4 = uitab(tg, 'Title', 'Score + Statistics');
+tab4 = uitab(tg, 'Title', 'Metric Statistics');
 
 %% ------------------------------------------------------------------------
 % TAB 1: 3D SHAPE VIEWER
@@ -480,53 +579,51 @@ uicontrol('Parent', tab3, 'Style', 'listbox', ...
     'Max', 2, 'Min', 0);
 
 %% ------------------------------------------------------------------------
-% TAB 4: SCORE + STATISTICS
+% TAB 4: METRIC STATISTICS
 % -------------------------------------------------------------------------
 
-ax4a = axes('Parent', tab4, 'Units', 'normalized', 'Position', [0.07 0.16 0.40 0.68]);
-boxplot(ax4a, score_values, shape_labels);
-ylabel(ax4a, 'Overall design score [-]');
-title(ax4a, 'Overall score distribution by shape');
+ax4a = axes('Parent', tab4, 'Units', 'normalized', 'Position', [0.06 0.56 0.26 0.34]);
+boxplot(ax4a, target_disturb_index, 'Labels', shape_names);
+ylabel(ax4a, 'Disturbance index [-] (lower better)');
+title(ax4a, 'Stability to External Force');
 grid(ax4a, 'on');
 
-ax4b = axes('Parent', tab4, 'Units', 'normalized', 'Position', [0.56 0.55 0.32 0.28]);
-mean_scores = zeros(1, nShapes);
-std_scores  = zeros(1, nShapes);
-
-for s = 1:nShapes
-    vals = best_score(:,s);
-    vals = vals(~isnan(vals));
-    mean_scores(s) = mean(vals);
-    std_scores(s)  = std(vals);
-end
-
-bar(ax4b, 1:nShapes, mean_scores);
-set(ax4b, 'XTick', 1:nShapes, 'XTickLabel', shape_names);
-ylabel(ax4b, 'Mean score [-]');
-title(ax4b, 'Mean overall score by shape');
+ax4b = axes('Parent', tab4, 'Units', 'normalized', 'Position', [0.37 0.56 0.26 0.34]);
+boxplot(ax4b, target_sa_to_vol, 'Labels', shape_names);
+ylabel(ax4b, 'S/V [1/m] (lower better)');
+title(ax4b, 'Surface Area to Volume');
 grid(ax4b, 'on');
 
-stats_lines = [{'Statistical summary:'}; {' '}; {anova_text}; {' '}; {'Mean and standard deviation:'}];
+ax4c = axes('Parent', tab4, 'Units', 'normalized', 'Position', [0.68 0.56 0.26 0.34]);
+boxplot(ax4c, target_struct_penalty, 'Labels', shape_names);
+ylabel(ax4c, 'Penalty [-] (lower better)');
+title(ax4c, 'Structural Penalty');
+grid(ax4c, 'on');
+
+stats_lines = {'Independent metric analysis (no composite score):'; ' '};
+for m = 1:numel(metric_titles)
+    stats_lines{end+1,1} = metric_anova_text{m}; %#ok<SAGROW>
+    stats_lines{end+1,1} = sprintf('  Pairwise significant differences: %d', metric_pairwise_sig_count(m)); %#ok<SAGROW>
+    stats_lines{end+1,1} = sprintf('  Significant pairs: %s', metric_sig_pairs_text{m}); %#ok<SAGROW>
+end
+stats_lines{end+1,1} = ' ';
+stats_lines{end+1,1} = 'Per-shape means by metric:';
+
 for s = 1:nShapes
-    stats_lines{end+1,1} = sprintf('%s: mean = %.4f, std = %.4f', ...
-        shape_names{s}, mean_scores(s), std_scores(s)); %#ok<SAGROW>
+    stats_lines{end+1,1} = sprintf('%s | Stability idx %.4f | S/V %.4f | Struct penalty %.4f', ...
+        shape_names{s}, ...
+        mean(target_disturb_index(:,s), 'omitnan'), ...
+        mean(target_sa_to_vol(:,s), 'omitnan'), ...
+        mean(target_struct_penalty(:,s), 'omitnan')); %#ok<SAGROW>
 end
 
 uicontrol('Parent', tab4, 'Style', 'listbox', ...
     'Units', 'normalized', ...
-    'Position', [0.56 0.16 0.36 0.28], ...
+    'Position', [0.06 0.08 0.88 0.40], ...
     'String', stats_lines, ...
     'FontSize', 10, ...
     'BackgroundColor', 'w', ...
     'Max', 2, 'Min', 0);
-
-if ~isempty(anova_stats) && ~isnan(anova_p) && anova_p < 0.05
-    uicontrol('Parent', tab4, 'Style', 'pushbutton', ...
-        'Units', 'normalized', ...
-        'Position', [0.07 0.90 0.16 0.05], ...
-        'String', 'Open Post-hoc Comparison', ...
-        'Callback', @open_posthoc);
-end
 
 %% ------------------------------------------------------------------------
 % INITIAL DRAW
@@ -560,77 +657,9 @@ safe_exportgraphics(fig, fullfile(results_dir, 'relevant_graph_outputs.png'));
         local_required_volume = NaN(1, nShapes);
 
         for s = 1:nShapes
-            m_total = user_mass_local + shapes(s).structure_penalty;
-            W_total = m_total * g;
-
-            br_vec = zeros(1, nVol);
-            endu_vec = zeros(1, nVol);
-            dx_vec = zeros(1, nVol);
-            dy_vec = zeros(1, nVol);
-            dz_vec = zeros(1, nVol);
-            dtotal_vec = zeros(1, nVol);
-            sa_ratio_vec = zeros(1, nVol);
-            score_vec = NaN(1, nVol);
-
-            for j = 1:nVol
-                V_eff = volume_vec(j) * shapes(s).packing_efficiency;
-                F_b = buoyant_force(V_eff, rho_air, rho_helium, g);
-                br = F_b / W_total;
-                br_vec(j) = br;
-
-                F_res = max(W_total - F_b, 0);
-                power_ratio = (max(F_res, 1e-8) / W_total)^(3/2);
-                endu_vec(j) = 1 / max(power_ratio, 1e-8);
-
-                [L, Wd, H] = shape_dimensions_from_volume(volume_vec(j), shapes(s).aspect, shapes(s).name);
-
-                A_yz = Wd * H;
-                A_xz = L * H;
-                A_xy = L * Wd;
-
-                over_buoyant_penalty = max(br - 1.0, 0);
-
-                dx_vec(j) = shapes(s).cd_xyz(1) * A_yz * (1 + 0.5 * over_buoyant_penalty);
-                dy_vec(j) = shapes(s).cd_xyz(2) * A_xz * (1 + 0.5 * over_buoyant_penalty);
-                dz_vec(j) = shapes(s).cd_xyz(3) * A_xy * (1 + 0.5 * over_buoyant_penalty);
-                dtotal_vec(j) = dx_vec(j) + dy_vec(j) + dz_vec(j);
-
-                S = surface_area_from_volume(volume_vec(j), shapes(s).aspect, shapes(s).name);
-                sa_ratio_vec(j) = S / volume_vec(j);
-            end
-
-            idx_req = find(br_vec >= target_buoyancy_ratio_local, 1, 'first');
-            if ~isempty(idx_req)
-                local_required_volume(s) = volume_vec(idx_req);
-            end
-
-            buoy_norm_local = normalise_01(br_vec);
-            endu_norm_local = normalise_01(endu_vec);
-            dist_norm_local = normalise_01(dtotal_vec);
-            sa_norm_local = normalise_01(sa_ratio_vec);
-            struct_pen_norm = shapes(s).structure_penalty / max_struct_pen;
-
-            for j = 1:nVol
-                feasible = (br_vec(j) >= 0.55) && (br_vec(j) <= 1.10);
-                if feasible
-                    score_vec(j) = ...
-                        0.30 * buoy_norm_local(j) + ...
-                        0.35 * endu_norm_local(j) - ...
-                        0.20 * dist_norm_local(j) - ...
-                        0.10 * sa_norm_local(j) - ...
-                        0.05 * struct_pen_norm;
-                end
-            end
-
-            [mx, idx_best] = max(score_vec);
-            if ~isempty(idx_best) && isfinite(mx)
-                best_volume(:,s); %#ok<VUNUS>
-                best_volume(round(interp1(mass_vec,1:nMass,user_mass_local,'nearest','extrap')),s) = volume_vec(idx_best);
-                best_endurance(round(interp1(mass_vec,1:nMass,user_mass_local,'nearest','extrap')),s) = endu_vec(idx_best);
-                best_score(round(interp1(mass_vec,1:nMass,user_mass_local,'nearest','extrap')),s) = score_vec(idx_best);
-                best_disturb_x(round(interp1(mass_vec,1:nMass,user_mass_local,'nearest','extrap')),s) = dx_vec(idx_best);
-                best_disturb_y(round(interp1(mass_vec,1:nMass,user_mass_local,'nearest','extrap')),s) = dy_vec(idx_best);
-                best_disturb_z(round(interp1(mass_vec,1:nMass,user_mass_local,'nearest','extrap')),s) = dz_vec(idx_best);
+            V_req = (target_buoyancy_ratio_local * user_mass_local) / ((rho_air - rho_helium) * shapes(s).packing_efficiency);
+            if V_req <= max(volume_vec)
+                local_required_volume(s) = V_req;
             end
         end
 
@@ -658,6 +687,7 @@ safe_exportgraphics(fig, fullfile(results_dir, 'relevant_graph_outputs.png'));
                 sprintf('Reference mass: %.1f g', user_mass_g_local)
                 sprintf('Target buoyancy ratio: %.2f', target_buoyancy_ratio_local)
                 sprintf('Required envelope volume: %.2f L', V_req*1000)
+                sprintf('Endurance factor at target BR: %.2f (same for all shapes)', endurance_from_buoyancy_ratio(target_buoyancy_ratio_local))
                 ' '
                 'Estimated dimensions:'
                 sprintf('  Length = %.3f m', L)
@@ -667,6 +697,7 @@ safe_exportgraphics(fig, fullfile(results_dir, 'relevant_graph_outputs.png'));
                 'Shape characteristics:'
                 sprintf('Surface area: %.4f m^2', S)
                 sprintf('Surface area / volume: %.2f 1/m', ratio)
+                sprintf('Structural efficiency (IQ): %.4f', isoperimetric_quotient(V_req, S))
             };
             set(infoBox, 'String', info_lines);
         end
@@ -855,11 +886,6 @@ safe_exportgraphics(fig, fullfile(results_dir, 'relevant_graph_outputs.png'));
         set(infoBox3, 'String', info_lines);
     end
 
-    function open_posthoc(~, ~)
-        figure('Name', 'Post-hoc Multiple Comparison', 'Color', 'w');
-        multcompare(anova_stats);
-    end
-
 end
 
 %% ------------------------------------------------------------------------
@@ -901,6 +927,62 @@ if abs(mx - mn) < 1e-12
 else
     arr_norm = (arr - mn) ./ (mx - mn);
 end
+end
+
+function arr_norm = normalise_01_ignore_nan(arr)
+arr_norm = NaN(size(arr));
+valid = ~isnan(arr);
+
+if ~any(valid)
+    return;
+end
+
+vals = arr(valid);
+mn = min(vals);
+mx = max(vals);
+
+if abs(mx - mn) < 1e-12
+    arr_norm(valid) = 0;
+else
+    arr_norm(valid) = (vals - mn) ./ (mx - mn);
+end
+end
+
+function endurance = endurance_from_buoyancy_ratio(br)
+thrust_fraction = max(1 - br, 1e-8);
+endurance = 1 / max(thrust_fraction^(3/2), 1e-8);
+end
+
+function [p_value, mean_diff] = permutation_pvalue_mean_diff(x, y, n_perm)
+if nargin < 3
+    n_perm = 3000;
+end
+
+x = x(:);
+y = y(:);
+
+mean_diff = mean(x) - mean(y);
+pooled = [x; y];
+n_x = numel(x);
+n_total = numel(pooled);
+
+if n_x == 0 || n_total == n_x
+    p_value = NaN;
+    return;
+end
+
+count_extreme = 0;
+for k = 1:n_perm
+    idx = randperm(n_total);
+    x_perm = pooled(idx(1:n_x));
+    y_perm = pooled(idx(n_x+1:end));
+    diff_perm = mean(x_perm) - mean(y_perm);
+    if abs(diff_perm) >= abs(mean_diff)
+        count_extreme = count_extreme + 1;
+    end
+end
+
+p_value = (count_extreme + 1) / (n_perm + 1);
 end
 
 function plot_shape_on_axes(ax, shapeName, dims)
@@ -968,6 +1050,10 @@ switch lower(shapeName)
     otherwise
         S = NaN;
 end
+end
+
+function iq = isoperimetric_quotient(V, S)
+iq = (36 * pi * V^2) / max(S^3, eps);
 end
 
 function [Xresp, Yresp, Zresp, response_map, metrics] = disturbance_surface_metrics_3d(dims, cd_xyz, shapeName, nAz, nEl)
@@ -1103,11 +1189,43 @@ writetable(tbl, output_path);
 fprintf('Saved table: %s\n', output_path);
 end
 
+function p_text = format_p_value(p_value)
+if isnan(p_value)
+    p_text = 'NaN';
+elseif p_value < 1e-3
+    p_text = sprintf('%.2e', p_value);
+else
+    p_text = sprintf('%.4f', p_value);
+end
+end
+
 function safe_exportgraphics(fig_handle, output_path)
 output_folder = fileparts(output_path);
 if ~exist(output_folder, 'dir')
     mkdir(output_folder);
 end
-exportgraphics(fig_handle, output_path, 'Resolution', 200);
+try
+    exportgraphics(fig_handle, output_path, 'Resolution', 200);
+catch err
+    if isgraphics(fig_handle, 'figure') && contains(err.message, 'more than one container')
+        try
+            exportapp(fig_handle, output_path);
+        catch
+            warning('safe_exportgraphics:skipExport', ...
+                'Skipping figure export for %s due to UI-container limitations.', output_path);
+            return;
+        end
+    elseif isgraphics(fig_handle, 'figure') && contains(err.message, 'UI components are not supported')
+        try
+            exportapp(fig_handle, output_path);
+        catch
+            warning('safe_exportgraphics:skipExport', ...
+                'Skipping figure export for %s due to UI-component limitations.', output_path);
+            return;
+        end
+    else
+        rethrow(err);
+    end
+end
 fprintf('Saved figure: %s\n', output_path);
 end

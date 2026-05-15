@@ -1,0 +1,4 @@
+metric,anova_p_value,anova_significant_at_alpha,n_significant_pairs,n_total_pairs,significant_pairs
+Stability Disturbance Index,2.0158531462467e-17,1,4,6,Cuboid vs Sphere (p=2.62e-10); Flattened Ellipsoid vs Sphere (p=3.84e-18); Cuboid vs Prolate Ellipsoid (p=0.0024); Flattened Ellipsoid vs Prolate Ellipsoid (p=6.90e-08)
+Surface Area / Volume,0.00455701674905248,1,1,6,Cuboid vs Sphere (p=0.0032)
+Structural Penalty,0,1,6,6,Prolate Ellipsoid vs Sphere (p=0.00e+00); Cuboid vs Sphere (p=0.00e+00); Flattened Ellipsoid vs Sphere (p=0.00e+00); Cuboid vs Prolate Ellipsoid (p=0.00e+00); Flattened Ellipsoid vs Prolate Ellipsoid (p=0.00e+00); Cuboid vs Flattened Ellipsoid (p=0.00e+00)
