@@ -1,4 +1,4 @@
 metric,anova_p_value,anova_significant_at_alpha,n_significant_pairs,n_total_pairs,significant_pairs,statistical_note
-Stability Disturbance Index,2.0158531462467e-17,1,4,6,Cuboid vs Sphere (p=2.62e-10); Flattened Ellipsoid vs Sphere (p=3.84e-18); Cuboid vs Prolate Ellipsoid (p=0.0024); Flattened Ellipsoid vs Prolate Ellipsoid (p=6.90e-08),ANOVA + Tukey-Kramer applied.
-Surface Area / Volume,0.00455701674905248,1,1,6,Cuboid vs Sphere (p=0.0032),ANOVA + Tukey-Kramer applied.
-Structural Mass Fraction,7.40282024532374e-05,1,1,6,Cuboid vs Sphere (p=4.31e-05),ANOVA + Tukey-Kramer applied.
+Stability Disturbance Index,2.43974288376032e-15,1,3,6,Cuboid vs Sphere (p=8.90e-09); Flattened Ellipsoid vs Sphere (p=7.10e-16); Flattened Ellipsoid vs Prolate Ellipsoid (p=5.24e-07),ANOVA + Tukey-Kramer applied.
+Surface Area / Volume,0.00138169929319847,1,1,6,Cuboid vs Sphere (p=8.35e-04),ANOVA + Tukey-Kramer applied.
+Structural Mass Fraction,0.00138169929319847,1,1,6,Cuboid vs Sphere (p=8.35e-04),ANOVA + Tukey-Kramer applied.
