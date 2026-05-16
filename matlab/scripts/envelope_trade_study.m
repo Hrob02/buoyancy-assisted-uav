@@ -9,10 +9,26 @@ function envelope_trade_study
 %
 % This is a comparative design screening tool, not CFD.
 
+
 clc;
 close all;
 
 fprintf('=== Buoyancy-Assisted UAV Envelope Trade Study ===\n');
+
+% ------------------------------------------------------------------------
+% CLEAN RESULTS DIRECTORY BEFORE WRITING NEW OUTPUTS
+% ------------------------------------------------------------------------
+results_dir = matlab_results_dir();
+if exist(results_dir, 'dir')
+    files = dir(fullfile(results_dir, '*.csv'));
+    for k = 1:numel(files)
+        delete(fullfile(results_dir, files(k).name));
+    end
+    files = dir(fullfile(results_dir, '*.png'));
+    for k = 1:numel(files)
+        delete(fullfile(results_dir, files(k).name));
+    end
+end
 
 %% ------------------------------------------------------------------------
 % USER SETTINGS
@@ -408,6 +424,79 @@ for s = 1:nShapes
     battery_life_tbl.(variable_name) = best_endurance(:, s);
 end
 safe_writetable(battery_life_tbl, fullfile(results_dir, 'battery_life_results.csv'));
+
+%% ------------------------------------------------------------------------
+% DOCUMENTATION-STYLE SUMMARY TABLES
+% -------------------------------------------------------------------------
+
+% 1. Per-shape mean metrics summary table
+doc_shape_metrics = cell(nShapes, 5);
+for s = 1:nShapes
+    doc_shape_metrics{s,1} = shape_names{s};
+    doc_shape_metrics{s,2} = mean(target_disturb_index(:,s), 'omitnan');
+    doc_shape_metrics{s,3} = mean(target_sa_to_vol(:,s), 'omitnan');
+    doc_shape_metrics{s,4} = mean(target_struct_mass_frac(:,s), 'omitnan');
+    doc_shape_metrics{s,5} = ""; % Placeholder for overall observation/comment
+end
+doc_shape_metrics_tbl = cell2table(doc_shape_metrics, 'VariableNames', { ...
+    'Shape', 'Mean_disturbance_stability_index', 'Mean_surface_area_to_volume', 'Mean_structural_mass_fraction', 'Overall_observation'});
+safe_writetable(doc_shape_metrics_tbl, fullfile(results_dir, 'doc_shape_metrics_summary.csv'));
+
+% 2. Per-shape geometry/dimension summary table for reference mass and target buoyancy
+ref_mass_idx = find(abs(mass_vec*1000 - user_mass_g) < 1e-3, 1, 'first');
+doc_shape_geom = cell(nShapes, 8);
+for s = 1:nShapes
+    V_req = (target_buoyancy_ratio * mass_vec(ref_mass_idx)) / (rho_air - rho_helium);
+    [L, Wd, H] = shape_dimensions_from_volume(V_req, shapes(s).aspect, shapes(s).name);
+    S = surface_area_from_volume(V_req, shapes(s).aspect, shapes(s).name);
+    ratio = S / V_req;
+    doc_shape_geom{s,1} = shape_names{s};
+    doc_shape_geom{s,2} = V_req * 1000; % L
+    doc_shape_geom{s,3} = L;
+    doc_shape_geom{s,4} = Wd;
+    doc_shape_geom{s,5} = H;
+    doc_shape_geom{s,6} = S;
+    doc_shape_geom{s,7} = ratio;
+    doc_shape_geom{s,8} = ""; % Placeholder for spatial footprint comment
+end
+doc_shape_geom_tbl = cell2table(doc_shape_geom, 'VariableNames', { ...
+    'Shape', 'Required_volume_L', 'Length_m', 'Width_m', 'Height_m', 'Surface_area_m2', 'SA_to_V_1_per_m', 'Spatial_footprint_comment'});
+safe_writetable(doc_shape_geom_tbl, fullfile(results_dir, 'doc_shape_geometry_summary.csv'));
+
+% 3. Per-metric ANOVA/statistical summary table (already written as metric_significance_summary.csv)
+
+% 4. Pairwise significance matrices for each metric
+metric_names = {'Stability Disturbance Index', 'Surface Area / Volume', 'Structural Mass Fraction'};
+for m = 1:numel(metric_names)
+    matrix = cell(nShapes+1, nShapes+1);
+    matrix(1,2:end) = shape_names;
+    matrix(2:end,1) = shape_names';
+    matrix(1,1) = {''};
+    for i = 1:nShapes
+        for j = 1:nShapes
+            if i == j
+                matrix{i+1,j+1} = '-';
+            else
+                % Find pairwise significance for this metric and shape pair
+                mask = strcmp(pairwise_tbl.metric, metric_names{m}) & ...
+                       ((strcmp(pairwise_tbl.shape_a, shape_names{i}) & strcmp(pairwise_tbl.shape_b, shape_names{j})) | ...
+                        (strcmp(pairwise_tbl.shape_a, shape_names{j}) & strcmp(pairwise_tbl.shape_b, shape_names{i})));
+                if any(mask)
+                    sig = pairwise_tbl.significant_at_alpha(mask);
+                    if sig
+                        matrix{i+1,j+1} = 'Significant';
+                    else
+                        matrix{i+1,j+1} = 'N.S.';
+                    end
+                else
+                    matrix{i+1,j+1} = 'N.S.';
+                end
+            end
+        end
+    end
+    T = cell2table(matrix(2:end,2:end), 'VariableNames', shape_names, 'RowNames', shape_names);
+    safe_writetable(T, fullfile(results_dir, sprintf('doc_pairwise_significance_%s.csv', matlab.lang.makeValidName(metric_names{m}))));
+end
 
 fig_battery = figure('Name', 'Battery Life: Endurance Factor vs Mass', ...
     'Color', 'w', 'Position', [200 200 820 480], 'Visible', 'off');
