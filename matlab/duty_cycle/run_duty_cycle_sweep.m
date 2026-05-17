@@ -133,6 +133,24 @@ validate_feasibility_consistency(summaryTable);
 end
 
 function validate_feasibility_consistency(summaryTable)
+expectedFeasible = summaryTable.altitude_pass & summaryTable.battery_power_pass & ...
+    summaryTable.battery_current_pass & summaryTable.thrust_pass & ...
+    summaryTable.voltage_pass & summaryTable.power_reduction_pass;
+feasibleMismatch = summaryTable.case_id(summaryTable.feasible ~= expectedFeasible);
+if ~isempty(feasibleMismatch)
+    fprintf(2, 'Feasibility assertion failed. Case IDs: %s\n', mat2str(feasibleMismatch'));
+end
+assert(all(summaryTable.feasible == expectedFeasible), ...
+    'Feasibility assertion failed: feasible column does not match required pass conditions.');
+
+expectedAltitudePass = summaryTable.altitude_drop_m <= (summaryTable.altitude_tolerance_m + 1e-12);
+altitudeMismatch = summaryTable.case_id(summaryTable.altitude_pass ~= expectedAltitudePass);
+if ~isempty(altitudeMismatch)
+    fprintf(2, 'Altitude-pass assertion failed. Case IDs: %s\n', mat2str(altitudeMismatch'));
+end
+assert(all(summaryTable.altitude_pass == expectedAltitudePass), ...
+    'Altitude-pass assertion failed: altitude_pass does not match altitude threshold comparison.');
+
 violAltitude = summaryTable.case_id(summaryTable.feasible & ~summaryTable.altitude_pass);
 violBatteryPower = summaryTable.case_id(summaryTable.feasible & ~summaryTable.battery_power_pass);
 violBatteryCurrent = summaryTable.case_id(summaryTable.feasible & ~summaryTable.battery_current_pass);

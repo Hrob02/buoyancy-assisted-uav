@@ -29,30 +29,12 @@ cfg.rotor.number_of_rotors = 4;
 % This is kept explicit as an assumption until bench thrust data is added.
 cfg.motor.thrust_poly_per_rotor_N_vs_V = [0.0025, -0.0200, 0.1000, -0.0800];
 
-% Sweep definitions.
-cfg.sweep.sweep_mode = "diagnostic_buoyancy";
+%% USER-EDITABLE SWEEP PARAMETERS
+cfg.sweep.buoyancy_ratio = 0.00:0.01:0.99;
+cfg.sweep.T_on_s = 0.10:0.10:1.00;
+cfg.sweep.T_off_s = 0.10:0.10:5.00;
 cfg.sweep.include_ideal_neutral_reference = true;
 cfg.sweep.include_ideal_reference_in_threshold = false;
-cfg.sweep.diagnostic_buoyancy_ratio = 0.40:0.01:0.99;
-cfg.sweep.high_buoyancy_ratio = 0.70:0.01:0.99;
-cfg.sweep.near_neutral_buoyancy_ratio = 0.85:0.005:0.995;
-cfg.sweep.broad_buoyancy_ratio = 0.00:0.025:0.995;
-cfg.sweep.custom_buoyancy_ratio = cfg.sweep.high_buoyancy_ratio;
-
-cfg.sweep.T_on_s_diagnostic_buoyancy = 0.10:0.10:1.00;
-cfg.sweep.T_off_s_diagnostic_buoyancy = 0.10:0.10:5.00;
-
-cfg.sweep.T_on_s_high_buoyancy = 0.10:0.10:1.00;
-cfg.sweep.T_off_s_high_buoyancy = 0.10:0.10:5.00;
-
-cfg.sweep.T_on_s_near_neutral = 0.05:0.05:1.00;
-cfg.sweep.T_off_s_near_neutral = 0.10:0.10:5.00;
-
-cfg.sweep.T_on_s_broad = 0.10:0.10:1.00;
-cfg.sweep.T_off_s_broad = 0.10:0.10:5.00;
-
-cfg.sweep.T_on_s_custom = cfg.sweep.T_on_s_high_buoyancy;
-cfg.sweep.T_off_s_custom = cfg.sweep.T_off_s_high_buoyancy;
 
 cfg.minimum_off_fraction_for_primary_results = 0.0;
 cfg.sweep.startup_energy_cases = struct( ...

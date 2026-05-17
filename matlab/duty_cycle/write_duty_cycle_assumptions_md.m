@@ -17,9 +17,9 @@ lines{end+1} = '- Compare continuous hover and duty-cycled thrust over equal cyc
 lines{end+1} = '- Sweep buoyancy ratio, T_on, T_off, startup energy, and motor-electrical efficiency.';
 lines{end+1} = '- Compute cycle energy, average power, endurance, altitude drop, and burst thrust demand.';
 lines{end+1} = '- Apply feasibility checks for altitude tolerance, battery power/current, and thrust capability.';
-lines{end+1} = sprintf('- Active sweep mode for this run: %s.', cfg.sweep.active_mode_label);
+lines{end+1} = sprintf('- Configured buoyancy sweep: %.2f to %.2f.', min(cfg.sweep.buoyancy_ratio), max(cfg.sweep.buoyancy_ratio));
 lines{end+1} = '';
-lines{end+1} = sprintf('The initial broad buoyancy sweep was useful for identifying that duty-cycled thrust is not feasible when the rotors remain responsible for a large fraction of the vehicle weight. The active %s sweep focuses on the intended design region where the helium envelope supports most of the vehicle weight and the rotors provide intermittent correction rather than primary lift. This better reflects the duty-cycled thrust mechanism demonstrated in buoyancy-dominant systems.', cfg.sweep.active_mode_label);
+lines{end+1} = 'The duty-cycle model is evaluated over a single configurable sweep definition near the top of the configuration file so the buoyancy and timing ranges can be adjusted directly without switching between internal sweep modes.';
 lines{end+1} = '';
 lines{end+1} = '## Evidence-supported parameters';
 lines{end+1} = sprintf('- Crazyflie airframe mass: %.3f kg', cfg.vehicle.mass_airframe_kg);
@@ -56,15 +56,18 @@ lines{end+1} = '';
 lines{end+1} = '## Power as the primary assessment metric';
 lines{end+1} = 'Endurance is calculated directly from usable battery energy and average power. Because of this direct relationship, endurance improvement is not treated as an independent assessment metric in this analysis. The main comparison is total average power reduction between continuous hover and duty-cycled thrust. Derived endurance values are retained in the result tables to show the practical consequence of power reduction.';
 lines{end+1} = '';
-lines{end+1} = '## Diagnostic buoyancy sweep';
-lines{end+1} = 'The previous high-buoyancy sweep found the best feasible duty-cycle case at the lower boundary of the tested range. The diagnostic sweep extends the buoyancy ratio range lower to determine whether the result is a true optimum or an artefact of the selected sweep bounds.';
+lines{end+1} = '## Full diagnostic sweep';
+lines{end+1} = 'The final diagnostic sweep evaluates buoyancy ratios from 0.00 to 0.99 to capture the full relationship between buoyancy support and duty-cycle power reduction. This sweep is used to identify whether the apparent optimum is a true internal maximum or an artefact of the previous sweep bounds.';
 lines{end+1} = 'The diagnostic sweep uses a coarser buoyancy and timing resolution to reduce runtime while still identifying the overall trend. Finer sweeps can be rerun around the identified optimum region.';
+lines{end+1} = '';
+lines{end+1} = '## Thesis-relevant high-buoyancy subset';
+lines{end+1} = 'Because the project aim is for the helium envelope to support most of the UAV weight, results are also reported separately for buoyancy ratios greater than or equal to 0.70. The full diagnostic sweep is used to understand the model behaviour, while the high-buoyancy subset is used for thesis-relevant interpretation.';
 lines{end+1} = '';
 lines{end+1} = '## Duty-cycle strength';
 lines{end+1} = 'Because some feasible cases may keep the motors on for most of the cycle, the analysis reports on-fraction and off-fraction. Cases with very short off-periods are classified as short-break pulsing rather than strong duty cycling.';
 lines{end+1} = '';
-lines{end+1} = '## Feasibility validation';
-lines{end+1} = 'Feasible cases must pass altitude, battery current, battery power, thrust, voltage, and total power reduction checks. Validation assertions are used to confirm that no case is marked feasible while failing any required criterion.';
+lines{end+1} = '## Feasibility audit';
+lines{end+1} = 'Feasible cases must pass altitude, battery power, battery current, thrust capability, voltage, and total power reduction checks. The simulation generates an audit table and uses assertions to confirm that no case is marked feasible while failing any required criterion.';
 lines{end+1} = '';
 lines{end+1} = '## Assumptions';
 lines{end+1} = '- Duty-cycle off-thrust is set by a configurable off-thrust fraction (default zero).';
@@ -77,7 +80,7 @@ lines{end+1} = '';
 if numFeasible == 0
     lines{end+1} = '## Interpretation of zero feasible cases';
     lines{end+1} = '- The primary metric is total average power reduction. Endurance improvement is derived from this power reduction and is therefore reported only as a consequence of the power result.';
-    lines{end+1} = sprintf('- The %s sweep tested whether the balloon could support most of the weight while rotors take intermittent breaks.', cfg.sweep.active_mode_label);
+    lines{end+1} = '- The configured diagnostic sweep tested whether the balloon could support most of the weight while rotors take intermittent breaks.';
     lines{end+1} = '- No feasible cases were found under the current assumptions.';
     lines{end+1} = '- This does not necessarily disprove buoyancy-assisted endurance improvement.';
     lines{end+1} = '- It suggests that, with the current open-loop duty-cycle model, continuous low-thrust correction is more efficient than motor-off/motor-on cycling.';
@@ -87,7 +90,7 @@ if numFeasible == 0
 else
     lines{end+1} = '## Interpretation of feasible cases';
     lines{end+1} = '- The primary metric is total average power reduction. Endurance improvement is derived from this power reduction and is therefore reported only as a consequence of the power result.';
-    lines{end+1} = sprintf('- The %s sweep identified a limited number of feasible duty-cycle cases.', cfg.sweep.active_mode_label);
+    lines{end+1} = '- The configured diagnostic sweep identified feasible duty-cycle cases across the tested buoyancy range.';
     lines{end+1} = '- Feasible cases were found only over a narrow buoyancy-ratio range.';
     lines{end+1} = '- The best cases produced small power and endurance improvements, around a few percent.';
     lines{end+1} = '- The best timing used short off-periods, suggesting that aggressive long motor-off intervals are not suitable for this Crazyflie-scale model.';
@@ -130,7 +133,7 @@ if numFeasible > 0
     minBR = min(thresholdSource.buoyancy_ratio);
     maxBR = max(thresholdSource.buoyancy_ratio);
     isInteriorOptimum = (bestCase.buoyancy_ratio > minBR + 1e-12) && (bestCase.buoyancy_ratio < maxBR - 1e-12);
-    if cfg.sweep.active_mode_label == "diagnostic_buoyancy" && isInteriorOptimum
+    if isInteriorOptimum
         lines{end+1} = sprintf('- Suggested refinement sweep: BR %.3f to %.3f with step 0.005 around the identified optimum.', ...
             max(bestCase.buoyancy_ratio - 0.05, 0.0), min(bestCase.buoyancy_ratio + 0.05, 0.995));
     end

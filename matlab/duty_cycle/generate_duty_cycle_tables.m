@@ -9,6 +9,12 @@ rows = {
     'sweep_mode', string(cfg.sweep.active_mode_label), '-', 'Active buoyancy sweep mode', 'configuration', 'analysis_setting';
     'include_ideal_neutral_reference', double(cfg.sweep.include_ideal_neutral_reference), '-', 'Whether BR=1.00 idealized reference is included', 'configuration', 'analysis_setting';
     'include_ideal_reference_in_threshold', double(cfg.sweep.include_ideal_reference_in_threshold), '-', 'Whether BR=1.00 is included in threshold calculations', 'configuration', 'analysis_setting';
+    'configured_buoyancy_min', min(cfg.sweep.buoyancy_ratio), '-', 'Configured sweep minimum buoyancy ratio', 'configuration', 'analysis_setting';
+    'configured_buoyancy_max', max(cfg.sweep.buoyancy_ratio), '-', 'Configured sweep maximum buoyancy ratio', 'configuration', 'analysis_setting';
+    'configured_T_on_min_s', min(cfg.sweep.T_on_s), 's', 'Configured sweep minimum T_on', 'configuration', 'analysis_setting';
+    'configured_T_on_max_s', max(cfg.sweep.T_on_s), 's', 'Configured sweep maximum T_on', 'configuration', 'analysis_setting';
+    'configured_T_off_min_s', min(cfg.sweep.T_off_s), 's', 'Configured sweep minimum T_off', 'configuration', 'analysis_setting';
+    'configured_T_off_max_s', max(cfg.sweep.T_off_s), 's', 'Configured sweep maximum T_off', 'configuration', 'analysis_setting';
     'mass_airframe_kg', cfg.vehicle.mass_airframe_kg, 'kg', 'Crazyflie 2.1+ airframe mass', 'evidence', 'platform_spec';
     'max_payload_kg', cfg.vehicle.max_payload_kg, 'kg', 'Maximum recommended payload', 'evidence', 'platform_spec';
     'battery_mass_kg', cfg.vehicle.battery_mass_kg, 'kg', 'Battery mass', 'evidence', 'battery_spec';
@@ -32,14 +38,6 @@ rows = {
     'thrust_poly_coeff_a2', cfg.motor.thrust_poly_per_rotor_N_vs_V(2), 'N/V^2', 'Per-rotor thrust polynomial coefficient', 'assumption', 'placeholder_fit';
     'thrust_poly_coeff_a1', cfg.motor.thrust_poly_per_rotor_N_vs_V(3), 'N/V', 'Per-rotor thrust polynomial coefficient', 'assumption', 'placeholder_fit';
     'thrust_poly_coeff_a0', cfg.motor.thrust_poly_per_rotor_N_vs_V(4), 'N', 'Per-rotor thrust polynomial coefficient', 'assumption', 'placeholder_fit';
-    'diagnostic_buoyancy_min', min(cfg.sweep.diagnostic_buoyancy_ratio), '-', 'Diagnostic sweep minimum buoyancy ratio', 'configuration', 'analysis_setting';
-    'diagnostic_buoyancy_max', max(cfg.sweep.diagnostic_buoyancy_ratio), '-', 'Diagnostic sweep maximum buoyancy ratio', 'configuration', 'analysis_setting';
-    'high_buoyancy_buoyancy_min', min(cfg.sweep.high_buoyancy_ratio), '-', 'High-buoyancy sweep minimum buoyancy ratio', 'configuration', 'analysis_setting';
-    'high_buoyancy_buoyancy_max', max(cfg.sweep.high_buoyancy_ratio), '-', 'High-buoyancy sweep maximum buoyancy ratio', 'configuration', 'analysis_setting';
-    'near_neutral_buoyancy_min', min(cfg.sweep.near_neutral_buoyancy_ratio), '-', 'Near-neutral sweep minimum buoyancy ratio', 'configuration', 'analysis_setting';
-    'near_neutral_buoyancy_max', max(cfg.sweep.near_neutral_buoyancy_ratio), '-', 'Near-neutral sweep maximum buoyancy ratio', 'configuration', 'analysis_setting';
-    'broad_buoyancy_min', min(cfg.sweep.broad_buoyancy_ratio), '-', 'Broad sweep minimum buoyancy ratio', 'configuration', 'analysis_setting';
-    'broad_buoyancy_max', max(cfg.sweep.broad_buoyancy_ratio), '-', 'Broad sweep maximum buoyancy ratio', 'configuration', 'analysis_setting';
     'minimum_off_fraction_for_primary_results', cfg.minimum_off_fraction_for_primary_results, '-', 'Minimum off-fraction applied to primary best-case ranking', 'configuration', 'analysis_setting';
 };
 
@@ -69,16 +67,24 @@ if ~isempty(filteredOff25Table)
 end
 
 failedCasesTable = summaryTable(~summaryTable.feasible, :);
+highBuoyancyRelevantCasesTable = summaryTable(summaryTable.feasible & summaryTable.buoyancy_ratio >= 0.70, :);
 
 closestCasesTable = build_closest_cases(summaryTable);
+feasibilityAuditTable = build_feasibility_audit_table(summaryTable);
+altitudeThresholdSummaryTable = build_altitude_threshold_summary_by_buoyancy(summaryTable);
+highBuoyancySummaryTable = build_high_buoyancy_summary_table(summaryTable);
 
 writetable(parameterTable, fullfile(cfg.paths.results_dir, 'duty_cycle_parameter_table.csv'));
 writetable(summaryTable, fullfile(cfg.paths.results_dir, 'duty_cycle_summary_table.csv'));
 writetable(feasibilityTable, fullfile(cfg.paths.results_dir, 'duty_cycle_feasibility_table.csv'));
 writetable(bestCasesTable, fullfile(cfg.paths.results_dir, 'duty_cycle_best_cases.csv'));
 writetable(filteredOff25Table, fullfile(cfg.paths.results_dir, 'duty_cycle_feasible_cases_min_off_fraction_25.csv'));
+writetable(highBuoyancyRelevantCasesTable, fullfile(cfg.paths.results_dir, 'duty_cycle_high_buoyancy_relevant_cases.csv'));
 writetable(failedCasesTable, fullfile(cfg.paths.results_dir, 'duty_cycle_failed_cases.csv'));
 writetable(closestCasesTable, fullfile(cfg.paths.results_dir, 'duty_cycle_closest_cases.csv'));
+writetable(feasibilityAuditTable, fullfile(cfg.paths.results_dir, 'duty_cycle_feasibility_audit.csv'));
+writetable(altitudeThresholdSummaryTable, fullfile(cfg.paths.results_dir, 'altitude_threshold_summary_by_buoyancy.csv'));
+writetable(highBuoyancySummaryTable, fullfile(cfg.paths.results_dir, 'duty_cycle_high_buoyancy_summary.csv'));
 
 feasibilityByBuoyancy = build_feasibility_by_buoyancy_ratio(summaryTable);
 writetable(feasibilityByBuoyancy, fullfile(cfg.paths.results_dir, 'feasibility_by_buoyancy_ratio.csv'));
@@ -153,6 +159,105 @@ feasibilityByBuoyancy = table( ...
     sweep_mode, buoyancy_ratio, total_cases, feasible_cases, feasible_percent, ...
     best_power_reduction_percent, best_derived_endurance_improvement_percent, ...
     lowest_altitude_drop_m, lowest_required_burst_power_W, best_T_on_s, best_T_off_s);
+end
+
+function feasibilityAuditTable = build_feasibility_audit_table(summaryTable)
+total_cases = height(summaryTable);
+feasible_cases = sum(summaryTable.feasible);
+infeasible_cases = total_cases - feasible_cases;
+
+altitude_pass_count = sum(summaryTable.altitude_pass);
+altitude_fail_count = total_cases - altitude_pass_count;
+battery_power_pass_count = sum(summaryTable.battery_power_pass);
+battery_power_fail_count = total_cases - battery_power_pass_count;
+battery_current_pass_count = sum(summaryTable.battery_current_pass);
+battery_current_fail_count = total_cases - battery_current_pass_count;
+thrust_pass_count = sum(summaryTable.thrust_pass);
+thrust_fail_count = total_cases - thrust_pass_count;
+voltage_pass_count = sum(summaryTable.voltage_pass);
+voltage_fail_count = total_cases - voltage_pass_count;
+power_reduction_pass_count = sum(summaryTable.power_reduction_pass);
+power_reduction_fail_count = total_cases - power_reduction_pass_count;
+
+feasible_with_altitude_fail_count = sum(summaryTable.feasible & ~summaryTable.altitude_pass);
+feasible_with_battery_power_fail_count = sum(summaryTable.feasible & ~summaryTable.battery_power_pass);
+feasible_with_battery_current_fail_count = sum(summaryTable.feasible & ~summaryTable.battery_current_pass);
+feasible_with_thrust_fail_count = sum(summaryTable.feasible & ~summaryTable.thrust_pass);
+feasible_with_voltage_fail_count = sum(summaryTable.feasible & ~summaryTable.voltage_pass);
+feasible_with_power_reduction_fail_count = sum(summaryTable.feasible & ~summaryTable.power_reduction_pass);
+
+if any([feasible_with_altitude_fail_count, feasible_with_battery_power_fail_count, feasible_with_battery_current_fail_count, ...
+        feasible_with_thrust_fail_count, feasible_with_voltage_fail_count, feasible_with_power_reduction_fail_count] ~= 0)
+    error('Feasibility audit failed: one or more feasible_with_*_fail_count values are nonzero.');
+end
+
+feasibilityAuditTable = table(total_cases, feasible_cases, infeasible_cases, ...
+    altitude_pass_count, altitude_fail_count, ...
+    battery_power_pass_count, battery_power_fail_count, ...
+    battery_current_pass_count, battery_current_fail_count, ...
+    thrust_pass_count, thrust_fail_count, ...
+    voltage_pass_count, voltage_fail_count, ...
+    power_reduction_pass_count, power_reduction_fail_count, ...
+    feasible_with_altitude_fail_count, feasible_with_battery_power_fail_count, ...
+    feasible_with_battery_current_fail_count, feasible_with_thrust_fail_count, ...
+    feasible_with_voltage_fail_count, feasible_with_power_reduction_fail_count);
+end
+
+function altitudeSummaryTable = build_altitude_threshold_summary_by_buoyancy(summaryTable)
+uniqueBuoyancy = unique(summaryTable.buoyancy_ratio);
+numRows = numel(uniqueBuoyancy);
+
+buoyancy_ratio = uniqueBuoyancy;
+total_cases = zeros(numRows, 1);
+altitude_pass_count = zeros(numRows, 1);
+altitude_fail_count = zeros(numRows, 1);
+min_altitude_drop_m = nan(numRows, 1);
+max_altitude_drop_m = nan(numRows, 1);
+best_altitude_margin_m = nan(numRows, 1);
+worst_altitude_margin_m = nan(numRows, 1);
+feasible_cases = zeros(numRows, 1);
+
+for i = 1:numRows
+    rows = summaryTable(summaryTable.buoyancy_ratio == uniqueBuoyancy(i), :);
+    total_cases(i) = height(rows);
+    altitude_pass_count(i) = sum(rows.altitude_pass);
+    altitude_fail_count(i) = total_cases(i) - altitude_pass_count(i);
+    min_altitude_drop_m(i) = min(rows.altitude_drop_m);
+    max_altitude_drop_m(i) = max(rows.altitude_drop_m);
+    best_altitude_margin_m(i) = max(rows.altitude_margin_m);
+    worst_altitude_margin_m(i) = min(rows.altitude_margin_m);
+    feasible_cases(i) = sum(rows.feasible);
+end
+
+altitudeSummaryTable = table(buoyancy_ratio, total_cases, altitude_pass_count, altitude_fail_count, ...
+    min_altitude_drop_m, max_altitude_drop_m, best_altitude_margin_m, worst_altitude_margin_m, feasible_cases);
+end
+
+function highBuoyancySummaryTable = build_high_buoyancy_summary_table(summaryTable)
+feasibleHigh = summaryTable(summaryTable.feasible & summaryTable.buoyancy_ratio >= 0.70, :);
+
+feasible_cases = height(feasibleHigh);
+if feasible_cases > 0
+    ranked = sortrows(feasibleHigh, {'total_power_reduction_percent', 'altitude_drop_m', 'P_on_required_W', 'T_off_s'}, ...
+        {'descend', 'ascend', 'ascend', 'ascend'});
+    bestCase = ranked(1, :);
+    best_power_reduction_percent = bestCase.total_power_reduction_percent;
+    best_T_on_s = bestCase.T_on_s;
+    best_T_off_s = bestCase.T_off_s;
+    best_off_fraction = bestCase.off_fraction;
+    highest_feasible_buoyancy_ratio = max(feasibleHigh.buoyancy_ratio);
+    interpretation_note = "High-buoyancy subset isolates thesis-relevant buoyancy-assisted cases with BR >= 0.70.";
+else
+    best_power_reduction_percent = nan;
+    best_T_on_s = nan;
+    best_T_off_s = nan;
+    best_off_fraction = nan;
+    highest_feasible_buoyancy_ratio = nan;
+    interpretation_note = "No feasible thesis-relevant cases were found for BR >= 0.70.";
+end
+
+highBuoyancySummaryTable = table(feasible_cases, best_power_reduction_percent, best_T_on_s, best_T_off_s, ...
+    best_off_fraction, highest_feasible_buoyancy_ratio, interpretation_note);
 end
 
 function thresholdTable = build_buoyancy_threshold_table(summaryTable, includeIdealReference)
@@ -285,7 +390,7 @@ if feasible_case_count > 0
         best_case_with_off_fraction_25_power_reduction_percent = nan;
     end
 
-    if sweep_mode == "diagnostic_buoyancy" && optimum_captured_within_sweep
+    if optimum_captured_within_sweep
         recommended_refinement_BR_min = max(best_buoyancy_ratio - 0.05, 0.0);
         recommended_refinement_BR_max = min(best_buoyancy_ratio + 0.05, 0.995);
         recommended_refinement_BR_step = 0.005;
@@ -296,7 +401,11 @@ if feasible_case_count > 0
     end
 
     if best_case_at_lower_boundary
-        interpretation_note = "Boundary note: Best case occurs at the lower boundary. The tested range may still be truncating the optimum.";
+        if abs(buoyancy_ratio_min_tested) < 1e-12 && abs(best_buoyancy_ratio) < 1e-12
+            interpretation_note = "Optimum note: The best power reduction occurs at BR = 0. This indicates the model is favouring thrust pulsing even without buoyancy assistance, so the duty-cycle control model should be interpreted cautiously for a conventional multirotor.";
+        else
+            interpretation_note = "Optimum note: The best power reduction occurs at the minimum tested buoyancy ratio. The optimum has not been captured unless the sweep starts at BR = 0.";
+        end
     elseif best_case_at_upper_boundary
         interpretation_note = "Boundary note: Best case occurs at the upper boundary. A higher-buoyancy sweep may be needed.";
     else
@@ -323,7 +432,7 @@ else
     recommended_refinement_BR_min = nan;
     recommended_refinement_BR_max = nan;
     recommended_refinement_BR_step = nan;
-    interpretation_note = "Boundary note: No feasible duty-cycle case was found within the tested buoyancy range.";
+    interpretation_note = "No feasible duty-cycle case was found within the tested buoyancy range.";
 end
 
 optimumSummaryTable = table( ...

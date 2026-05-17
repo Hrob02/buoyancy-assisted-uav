@@ -1,0 +1,80 @@
+Planned evaluated cases: 454500
+
+=== Duty-Cycle Thrust Evaluation Summary ===
+Output results directory: C:\Users\Hallie\Desktop\buoyancy-assisted-uav\matlab\results\duty_cycle
+Output figures directory: C:\Users\Hallie\Desktop\buoyancy-assisted-uav\matlab\figures\duty_cycle
+Sweep label: configured_sweep
+Battery nominal energy: 0.925 Wh (3330.0 J)
+Battery max current/power: 3.750 A / 13.875 W
+Total evaluated cases: 454500
+Feasible cases: 12080
+Infeasible cases: 442420
+Feasible percentage: 2.66%
+Cases passing altitude criterion: 37800
+Cases passing battery criterion: 115830
+Cases passing thrust criterion: 77076
+Cases passing all physical constraints but failing power reduction: 22156
+
+Top 5 feasible cases (sorted by total power reduction):
+BR       T_on     T_off    PowerRed%  DerivedEnduranceImprovement%  Drop[m]   
+0.00     0.70     0.20     11.56      13.07            0.1962    
+0.01     0.70     0.20     11.55      13.05            0.1942    
+0.02     0.70     0.20     11.53      13.04            0.1923    
+0.03     0.70     0.20     11.52      13.02            0.1903    
+0.04     0.70     0.20     11.50      13.00            0.1884    
+
+Best feasible case: BR=0.000, T_on=0.70 s, T_off=0.20 s, total power reduction=11.56%, altitude drop=0.1962 m.
+Lowest BR with feasible cases: 0.000
+Highest BR with feasible cases: 0.940
+Buoyancy ratio with best power reduction: 0.000
+Best power reduction percent: 11.56%
+Best derived endurance improvement percent: 13.07%
+Best T_on and T_off: T_on=0.70 s, T_off=0.20 s
+Best feasible case (no off-fraction filter): BR=0.000, T_on=0.70 s, T_off=0.20 s, off_fraction=0.222, duty_cycle_type=short_break_pulsing, power reduction=11.56%
+Feasible cases with off_fraction >= 0.25: 4247
+Best feasible case (off_fraction >= 0.25): BR=0.000, T_on=0.60 s, T_off=0.20 s, off_fraction=0.250, duty_cycle_type=moderate_duty_cycle, power reduction=11.21%
+Best feasible case (BR >= 0.70 and off_fraction >= 0.25): BR=0.700, T_on=0.90 s, T_off=0.30 s, off_fraction=0.250, duty_cycle_type=moderate_duty_cycle, power reduction=8.07%
+Boundary note: Best case occurs at the lower boundary. The tested range may still be truncating the optimum.
+
+Thesis-relevant high-buoyancy subset
+Feasible cases with BR >= 0.70: 2059
+Best power reduction for BR >= 0.70: 8.34%
+Best BR >= 0.70 case: BR=0.700, T_on=1.00 s, T_off=0.30 s, off_fraction=0.231, duty_cycle_type=short_break_pulsing
+Highest feasible buoyancy ratio for BR >= 0.70 subset: 0.940
+
+Lower-bound note: Feasible cases exist at the minimum tested buoyancy ratio. This means the true lower feasibility threshold may be below the tested range.
+Optimum note: The best power reduction occurs at BR = 0. This indicates the model is favouring thrust pulsing even without buoyancy assistance, so the duty-cycle control model should be interpreted cautiously for a conventional multirotor.
+Main interpretation: The primary metric is total average power reduction. Endurance improvement is derived from this power reduction and is therefore reported only as a consequence of the power result. Under current assumptions, a small number of duty-cycled cases reduced total average power while satisfying altitude, thrust, and battery limits. The benefit is marginal and occurs only over a limited buoyancy-ratio and timing range.
+
+Most common failure reasons:
+  - average_power_not_lower_than_continuous: 436455
+  - altitude_drop_exceeds_tolerance: 416700
+  - required_motor_voltage_above_nominal: 377424
+  - required_thrust_exceeds_crazyflie_capability: 377424
+  - burst_current_exceeds_battery_limit: 338670
+
+Generated files:
+  - duty_cycle_parameter_table.csv
+  - duty_cycle_summary_table.csv
+  - duty_cycle_feasibility_table.csv
+  - duty_cycle_best_cases.csv
+  - duty_cycle_feasible_cases_min_off_fraction_25.csv
+  - duty_cycle_high_buoyancy_relevant_cases.csv
+  - duty_cycle_high_buoyancy_summary.csv
+  - duty_cycle_failed_cases.csv
+  - duty_cycle_closest_cases.csv
+  - duty_cycle_optimum_summary.csv
+  - duty_cycle_feasibility_audit.csv
+  - feasibility_by_buoyancy_ratio.csv
+  - buoyancy_feasibility_threshold.csv
+  - altitude_threshold_summary_by_buoyancy.csv
+  - duty_cycle_assumptions.md
+  - power_vs_buoyancy_ratio.png
+  - altitude_margin_vs_buoyancy_ratio.png
+  - altitude_drop_vs_toff.png
+  - best_case_summary.png
+  - buoyancy_feasibility_boundary.png
+  - power_reduction_curve_with_optimum.png
+  - off_fraction_vs_power_reduction.png
+
+Duty-cycle analysis complete.

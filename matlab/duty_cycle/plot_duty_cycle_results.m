@@ -17,12 +17,10 @@ bestByBuoyancy = get_best_feasible_by_buoyancy(bestCasesTable);
 closestCase = get_closest_case(summaryTable);
 
 plot_power_vs_buoyancy(resultsFigDir, continuousNominal, bestByBuoyancy, noFeasible, sweepLabel, lineWidth);
-plot_feasibility_maps(resultsFigDir, summaryTable, sweepLabel);
+plot_altitude_margin_vs_buoyancy_ratio(resultsFigDir, summaryTable, sweepLabel, lineWidth);
 plot_altitude_drop_vs_toff(resultsFigDir, summaryTable, cfg.sim.altitude_tolerance_m, sweepLabel, lineWidth);
-plot_energy_cycle_comparison(resultsFigDir, bestByBuoyancy, closestCase, noFeasible, sweepLabel);
 plot_best_case_summary(resultsFigDir, bestCasesTable, closestCase, noFeasible);
 plot_buoyancy_feasibility_boundary(resultsFigDir, summaryTable, sweepLabel, lineWidth);
-plot_best_improvement_curves(resultsFigDir, summaryTable, sweepLabel, lineWidth);
 plot_power_reduction_curve_with_optimum(resultsFigDir, summaryTable, sweepLabel, lineWidth);
 plot_off_fraction_vs_power_reduction(resultsFigDir, summaryTable, sweepLabel);
 
@@ -81,70 +79,31 @@ exportgraphics(fig, fullfile(resultsFigDir, 'power_vs_buoyancy_ratio.png'));
 close(fig);
 end
 
-function plot_feasibility_maps(resultsFigDir, summaryTable, sweepLabel)
-selectedBR = [0.90, 0.95, 0.98, 0.99, 0.995];
-selectedBR = select_available_ratios(summaryTable.buoyancy_ratio, selectedBR);
+function plot_altitude_margin_vs_buoyancy_ratio(resultsFigDir, summaryTable, sweepLabel, lineWidth)
+fig = figure('Color', 'w', 'Visible', 'off');
+feasibleRows = summaryTable(summaryTable.feasible, :);
+altitudeFailRows = summaryTable(~summaryTable.altitude_pass, :);
 
-figOverview = figure('Color', 'w', 'Visible', 'off');
-numTiles = max(numel(selectedBR), 1);
-t = tiledlayout(figOverview, ceil(numTiles / 2), 2, 'TileSpacing', 'compact', 'Padding', 'compact');
-
-for i = 1:numTiles
-    nexttile(t);
-    if isempty(selectedBR)
-        axis off;
-        text(0.5, 0.5, 'No selected buoyancy ratios available.', 'HorizontalAlignment', 'center');
-        continue;
-    end
-    br = selectedBR(i);
-    map = build_feasibility_map(summaryTable, br);
-    imagesc(map.toffVals, map.tonVals, map.feasiblePercent);
-    axis xy;
-    caxis([0 100]);
-    colormap(parula);
-    colorbar;
-    xlabel('T_{off} [s]');
-    ylabel('T_{on} [s]');
-    title(sprintf('BR = %.3f', br));
-
-    % Save separate readable maps for each selected ratio.
-    figSingle = figure('Color', 'w', 'Visible', 'off');
-    imagesc(map.toffVals, map.tonVals, map.feasiblePercent);
-    axis xy;
-    caxis([0 100]);
-    colormap(parula);
-    colorbar;
-    xlabel('T_{off} [s]');
-    ylabel('T_{on} [s]');
-    title(sprintf('Duty-Cycle Feasibility Map (BR = %.3f)', br));
-    subtitle(sweepLabel);
-    fileSuffix = strrep(sprintf('%.3f', br), '.', 'p');
-    exportgraphics(figSingle, fullfile(resultsFigDir, sprintf('duty_cycle_feasibility_map_BR_%s.png', fileSuffix)));
-    close(figSingle);
+hold on;
+if ~isempty(feasibleRows)
+    scatter(feasibleRows.buoyancy_ratio, feasibleRows.altitude_margin_m, 20, 'o', 'filled', ...
+        'DisplayName', 'Feasible cases');
 end
-
-title(t, 'Duty-Cycle Feasibility Map (Selected Buoyancy Ratios)');
-subtitle(t, sweepLabel);
-exportgraphics(figOverview, fullfile(resultsFigDir, 'duty_cycle_feasibility_map.png'));
-close(figOverview);
+if ~isempty(altitudeFailRows)
+    scatter(altitudeFailRows.buoyancy_ratio, altitudeFailRows.altitude_margin_m, 22, 'x', ...
+        'DisplayName', 'Altitude-failed cases');
 end
+yline(0, '--k', '0 m margin', 'LineWidth', lineWidth, 'DisplayName', '0 m margin');
+hold off;
+grid on;
+xlabel('Buoyancy ratio [-]');
+ylabel('Altitude margin [m]');
+title('Altitude Margin vs Buoyancy Ratio');
+subtitle(sweepLabel);
+legend('Location', 'best');
 
-function map = build_feasibility_map(summaryTable, buoyancyRatio)
-subset = summaryTable(summaryTable.buoyancy_ratio == buoyancyRatio, :);
-tonVals = unique(subset.T_on_s);
-toffVals = unique(subset.T_off_s);
-feasiblePercent = nan(numel(tonVals), numel(toffVals));
-
-for r = 1:numel(tonVals)
-    for c = 1:numel(toffVals)
-        m = subset.T_on_s == tonVals(r) & subset.T_off_s == toffVals(c);
-        if any(m)
-            feasiblePercent(r, c) = 100.0 * sum(subset.feasible(m)) / sum(m);
-        end
-    end
-end
-
-map = struct('tonVals', tonVals, 'toffVals', toffVals, 'feasiblePercent', feasiblePercent);
+exportgraphics(fig, fullfile(resultsFigDir, 'altitude_margin_vs_buoyancy_ratio.png'));
+close(fig);
 end
 
 function plot_altitude_drop_vs_toff(resultsFigDir, summaryTable, altitudeTolerance_m, sweepLabel, lineWidth)
@@ -200,36 +159,6 @@ exportgraphics(fig, fullfile(resultsFigDir, 'altitude_drop_vs_toff.png'));
 close(fig);
 end
 
-function plot_energy_cycle_comparison(resultsFigDir, bestByBuoyancy, closestCase, noFeasible, sweepLabel)
-fig = figure('Color', 'w', 'Visible', 'off');
-if noFeasible
-    x = categorical({'Closest case'});
-    y = [closestCase.E_cont_cycle_J, closestCase.E_duty_cycle_J];
-    bar(x, y);
-    legend({'Continuous cycle energy', 'Duty-cycle energy'}, 'Location', 'best');
-    title('Energy Per Cycle Comparison: Closest Case');
-    subtitle({sweepLabel, 'No feasible duty-cycle case found. Closest case shown.'});
-else
-    if isempty(bestByBuoyancy)
-        create_placeholder_figure(fig, 'Energy Per Cycle Comparison', 'No feasible duty-cycle cases found under current assumptions.');
-        exportgraphics(fig, fullfile(resultsFigDir, 'energy_per_cycle_comparison.png'));
-        close(fig);
-        return;
-    end
-    x = categorical(string(bestByBuoyancy.buoyancy_ratio));
-    y = [bestByBuoyancy.E_cont_cycle_J, bestByBuoyancy.E_duty_cycle_J];
-    bar(x, y);
-    legend({'Continuous cycle energy', 'Duty-cycle energy'}, 'Location', 'best');
-    title('Energy Per Cycle Comparison: Best Feasible Cases');
-    subtitle(sweepLabel);
-end
-grid on;
-xlabel('Buoyancy ratio [-]');
-ylabel('Energy per cycle [J]');
-exportgraphics(fig, fullfile(resultsFigDir, 'energy_per_cycle_comparison.png'));
-close(fig);
-end
-
 function plot_best_case_summary(resultsFigDir, bestCasesTable, closestCase, noFeasible)
 fig = figure('Color', 'w', 'Visible', 'off');
 ax = axes(fig);
@@ -275,29 +204,6 @@ exportgraphics(fig, fullfile(resultsFigDir, 'buoyancy_feasibility_boundary.png')
 close(fig);
 end
 
-function plot_best_improvement_curves(resultsFigDir, summaryTable, sweepLabel, lineWidth)
-feasibilityByBuoyancy = build_feasibility_by_buoyancy(summaryTable);
-feasibleSummary = feasibilityByBuoyancy(feasibilityByBuoyancy.feasible_cases > 0, :);
-
-fig2 = figure('Color', 'w', 'Visible', 'off');
-if ~isempty(feasibleSummary)
-    plot(feasibleSummary.buoyancy_ratio, feasibleSummary.best_power_reduction_percent, '-d', 'LineWidth', lineWidth);
-    yline(0, '--k', '0% reduction', 'LineWidth', 1.0);
-else
-    create_placeholder_figure(fig2, 'Best Power Reduction vs Buoyancy Ratio', ...
-        'No feasible duty-cycle cases found under current assumptions.');
-end
-grid on;
-xlabel('Buoyancy ratio [-]');
-ylabel('Best power reduction [%]');
-if ~isempty(feasibleSummary)
-    title('Best Power Reduction vs Buoyancy Ratio');
-    subtitle(sweepLabel);
-end
-exportgraphics(fig2, fullfile(resultsFigDir, 'best_power_reduction_vs_buoyancy_ratio.png'));
-close(fig2);
-end
-
 function plot_power_reduction_curve_with_optimum(resultsFigDir, summaryTable, sweepLabel, lineWidth)
 feasibilityByBuoyancy = build_feasibility_by_buoyancy(summaryTable);
 fig = figure('Color', 'w', 'Visible', 'off');
@@ -327,6 +233,19 @@ if ~isempty(feasibleCurve)
 
     plot(bestBR, bestVal, markerStyle, 'MarkerSize', 12, 'MarkerFaceColor', [0.85 0.20 0.10], ...
         'MarkerEdgeColor', [0.30 0.10 0.05], 'DisplayName', markerLabel);
+
+    highBuoyancyCurve = feasibleCurve(feasibleCurve.buoyancy_ratio >= 0.70, :);
+    if ~isempty(highBuoyancyCurve)
+        [bestHighVal, bestHighIdx] = max(highBuoyancyCurve.best_power_reduction_percent);
+        bestHighBR = highBuoyancyCurve.buoyancy_ratio(bestHighIdx);
+        plot(bestHighBR, bestHighVal, 's', 'MarkerSize', 10, 'MarkerFaceColor', [0.15 0.45 0.80], ...
+            'MarkerEdgeColor', [0.05 0.20 0.35], 'DisplayName', 'Best case for BR >= 0.70');
+    end
+
+    if bestBR < 0.70
+        text(bestBR, bestVal, '  Global best outside thesis-relevant BR >= 0.70 region', ...
+            'FontSize', 9, 'VerticalAlignment', 'bottom');
+    end
 end
 
 hold off;
@@ -389,7 +308,7 @@ end
 function selected = select_available_ratios(allRatios, preferred)
 selected = [];
 for i = 1:numel(preferred)
-    [minDiff, idx] = min(abs(allRatios - preferred(i))); %#ok<ASGLU>
+    [~, idx] = min(abs(allRatios - preferred(i)));
     if ~isempty(idx)
         selected = [selected; allRatios(idx)]; %#ok<AGROW>
     end

@@ -5,7 +5,7 @@ clc;
 close all;
 
 cfg = config_duty_cycle_parameters();
-cfg = resolve_sweep_settings(cfg);
+cfg = prepare_sweep_settings(cfg);
 ensure_output_directories(cfg);
 clean_new_output_directories(cfg);
 
@@ -42,27 +42,30 @@ resultFiles = {
     'duty_cycle_feasibility_table.csv'
     'duty_cycle_best_cases.csv'
     'duty_cycle_feasible_cases_min_off_fraction_25.csv'
+    'duty_cycle_high_buoyancy_relevant_cases.csv'
+    'duty_cycle_high_buoyancy_summary.csv'
     'duty_cycle_failed_cases.csv'
     'duty_cycle_closest_cases.csv'
     'duty_cycle_optimum_summary.csv'
+    'duty_cycle_feasibility_audit.csv'
     'feasibility_by_buoyancy_ratio.csv'
     'buoyancy_feasibility_threshold.csv'
-    'near_neutral_feasibility_threshold.csv'
+    'altitude_threshold_summary_by_buoyancy.csv'
     'continuous_hover_baseline_cases.csv'
     'duty_cycle_assumptions.md'
 };
 
 figureFiles = {
     'power_vs_buoyancy_ratio.png'
-    'duty_cycle_feasibility_map.png'
+    'altitude_margin_vs_buoyancy_ratio.png'
     'altitude_drop_vs_toff.png'
-    'energy_per_cycle_comparison.png'
     'best_case_summary.png'
     'buoyancy_feasibility_boundary.png'
-    'near_neutral_feasibility_boundary.png'
-    'best_power_reduction_vs_buoyancy_ratio.png'
     'power_reduction_curve_with_optimum.png'
     'off_fraction_vs_power_reduction.png'
+    'duty_cycle_feasibility_map.png'
+    'energy_per_cycle_comparison.png'
+    'best_power_reduction_vs_buoyancy_ratio.png'
     % Deprecated endurance figures are removed if they exist.
     'endurance_vs_buoyancy_ratio.png'
     'endurance_vs_buoyancy_ratio_log.png'
@@ -113,46 +116,14 @@ continuousTable = struct2table(vertcat(caseRows{:}));
 continuousTable = sortrows(continuousTable, {'eta_case', 'buoyancy_ratio'});
 end
 
-function cfg = resolve_sweep_settings(cfg)
-mode = lower(string(cfg.sweep.sweep_mode));
-switch mode
-    case "diagnostic_buoyancy"
-        activeBuoyancy = cfg.sweep.diagnostic_buoyancy_ratio;
-        activeTon = cfg.sweep.T_on_s_diagnostic_buoyancy;
-        activeToff = cfg.sweep.T_off_s_diagnostic_buoyancy;
-        modeLabel = "diagnostic_buoyancy";
-    case "high_buoyancy"
-        activeBuoyancy = cfg.sweep.high_buoyancy_ratio;
-        activeTon = cfg.sweep.T_on_s_high_buoyancy;
-        activeToff = cfg.sweep.T_off_s_high_buoyancy;
-        modeLabel = "high_buoyancy";
-    case "near_neutral"
-        activeBuoyancy = cfg.sweep.near_neutral_buoyancy_ratio;
-        activeTon = cfg.sweep.T_on_s_near_neutral;
-        activeToff = cfg.sweep.T_off_s_near_neutral;
-        modeLabel = "near_neutral";
-    case "broad"
-        activeBuoyancy = cfg.sweep.broad_buoyancy_ratio;
-        activeTon = cfg.sweep.T_on_s_broad;
-        activeToff = cfg.sweep.T_off_s_broad;
-        modeLabel = "broad";
-    case "custom"
-        activeBuoyancy = cfg.sweep.custom_buoyancy_ratio;
-        activeTon = cfg.sweep.T_on_s_custom;
-        activeToff = cfg.sweep.T_off_s_custom;
-        modeLabel = "custom";
-    otherwise
-        error('Unsupported sweep mode: %s. Use diagnostic_buoyancy, high_buoyancy, near_neutral, broad, or custom.', cfg.sweep.sweep_mode);
-end
-
+function cfg = prepare_sweep_settings(cfg)
+activeBuoyancy = cfg.sweep.buoyancy_ratio;
 if cfg.sweep.include_ideal_neutral_reference
     activeBuoyancy = unique([activeBuoyancy, 1.0]);
 end
 
 cfg.sweep.active_buoyancy_ratio = activeBuoyancy;
-cfg.sweep.T_on_s = activeTon;
-cfg.sweep.T_off_s = activeToff;
-cfg.sweep.active_mode_label = modeLabel;
+cfg.sweep.active_mode_label = "configured_sweep";
 cfg.sweep.include_ideal_reference_in_threshold = false;
 end
 
@@ -160,7 +131,7 @@ function print_console_summary(cfg, battery, bestCasesTable, failedCasesTable, s
 fprintf('\n=== Duty-Cycle Thrust Evaluation Summary ===\n');
 fprintf('Output results directory: %s\n', cfg.paths.results_dir);
 fprintf('Output figures directory: %s\n', cfg.paths.figures_dir);
-fprintf('Sweep mode: %s\n', cfg.sweep.active_mode_label);
+fprintf('Sweep label: %s\n', cfg.sweep.active_mode_label);
 fprintf('Battery nominal energy: %.3f Wh (%.1f J)\n', battery.E_bat_Wh, battery.E_bat_J);
 fprintf('Battery max current/power: %.3f A / %.3f W\n', battery.I_max_A, battery.P_bat_max_W);
 fprintf('Total evaluated cases: %d\n', height(summaryTable));
@@ -204,6 +175,9 @@ if feasibleCaseCount > 0
     feasibleOnly = summaryTable(summaryTable.feasible, :);
     [~, idxBestPower] = max(feasibleOnly.total_power_reduction_percent);
     bestPowerCase = feasibleOnly(idxBestPower, :);
+    feasibleOff25 = feasibleOnly(feasibleOnly.off_fraction >= 0.25, :);
+    feasibleHighBuoyancy = feasibleOnly(feasibleOnly.buoyancy_ratio >= 0.70, :);
+    feasibleHighBuoyancyOff25 = feasibleOnly(feasibleOnly.buoyancy_ratio >= 0.70 & feasibleOnly.off_fraction >= 0.25, :);
 
     thresholdSource = summaryTable(~summaryTable.is_idealized_neutral_reference, :);
     sweepMin = min(thresholdSource.buoyancy_ratio);
@@ -224,6 +198,28 @@ if feasibleCaseCount > 0
     fprintf('Best power reduction percent: %.2f%%\n', bestPowerCase.total_power_reduction_percent);
     fprintf('Best derived endurance improvement percent: %.2f%%\n', bestPowerCase.derived_endurance_improvement_percent);
     fprintf('Best T_on and T_off: T_on=%.2f s, T_off=%.2f s\n', bestPowerCase.T_on_s, bestPowerCase.T_off_s);
+    fprintf('Best feasible case (no off-fraction filter): BR=%.3f, T_on=%.2f s, T_off=%.2f s, off_fraction=%.3f, duty_cycle_type=%s, power reduction=%.2f%%\n', ...
+        bestPowerCase.buoyancy_ratio, bestPowerCase.T_on_s, bestPowerCase.T_off_s, bestPowerCase.off_fraction, ...
+        string(bestPowerCase.duty_cycle_type), bestPowerCase.total_power_reduction_percent);
+    fprintf('Feasible cases with off_fraction >= 0.25: %d\n', height(feasibleOff25));
+    if ~isempty(feasibleOff25)
+        [~, idxOff25] = max(feasibleOff25.total_power_reduction_percent);
+        bestOff25 = feasibleOff25(idxOff25, :);
+        fprintf('Best feasible case (off_fraction >= 0.25): BR=%.3f, T_on=%.2f s, T_off=%.2f s, off_fraction=%.3f, duty_cycle_type=%s, power reduction=%.2f%%\n', ...
+            bestOff25.buoyancy_ratio, bestOff25.T_on_s, bestOff25.T_off_s, bestOff25.off_fraction, ...
+            string(bestOff25.duty_cycle_type), bestOff25.total_power_reduction_percent);
+    else
+        fprintf('Best feasible case (off_fraction >= 0.25): none found.\n');
+    end
+    if ~isempty(feasibleHighBuoyancyOff25)
+        [~, idxHighOff25] = max(feasibleHighBuoyancyOff25.total_power_reduction_percent);
+        bestHighOff25 = feasibleHighBuoyancyOff25(idxHighOff25, :);
+        fprintf('Best feasible case (BR >= 0.70 and off_fraction >= 0.25): BR=%.3f, T_on=%.2f s, T_off=%.2f s, off_fraction=%.3f, duty_cycle_type=%s, power reduction=%.2f%%\n', ...
+            bestHighOff25.buoyancy_ratio, bestHighOff25.T_on_s, bestHighOff25.T_off_s, bestHighOff25.off_fraction, ...
+            string(bestHighOff25.duty_cycle_type), bestHighOff25.total_power_reduction_percent);
+    else
+        fprintf('Best feasible case (BR >= 0.70 and off_fraction >= 0.25): none found.\n');
+    end
 
     if atLowerBoundary
         fprintf('Boundary note: Best case occurs at the lower boundary. The tested range may still be truncating the optimum.\n');
@@ -233,20 +229,17 @@ if feasibleCaseCount > 0
         fprintf('Boundary note: Best case occurs inside the tested range. The sweep appears to capture a local optimum.\n');
     end
 
-    feasibleOff25 = feasibleOnly(feasibleOnly.off_fraction >= 0.25, :);
-    fprintf('Feasible cases with off_fraction >= 0.25: %d\n', height(feasibleOff25));
-    fprintf('Best feasible case (no off-fraction filter): BR=%.3f, T_on=%.2f s, T_off=%.2f s, off_fraction=%.3f, duty_cycle_type=%s, power reduction=%.2f%%\n', ...
-        bestPowerCase.buoyancy_ratio, bestPowerCase.T_on_s, bestPowerCase.T_off_s, bestPowerCase.off_fraction, ...
-        string(bestPowerCase.duty_cycle_type), bestPowerCase.total_power_reduction_percent);
-    if ~isempty(feasibleOff25)
-        rankedOff25 = sortrows(feasibleOff25, {'total_power_reduction_percent', 'altitude_drop_m', 'P_on_required_W', 'T_off_s'}, ...
-            {'descend', 'ascend', 'ascend', 'ascend'});
-        bestOff25 = rankedOff25(1, :);
-        fprintf('Best feasible case (off_fraction >= 0.25): BR=%.3f, T_on=%.2f s, T_off=%.2f s, off_fraction=%.3f, duty_cycle_type=%s, power reduction=%.2f%%\n', ...
-            bestOff25.buoyancy_ratio, bestOff25.T_on_s, bestOff25.T_off_s, bestOff25.off_fraction, ...
-            string(bestOff25.duty_cycle_type), bestOff25.total_power_reduction_percent);
+    fprintf('\nThesis-relevant high-buoyancy subset\n');
+    fprintf('Feasible cases with BR >= 0.70: %d\n', height(feasibleHighBuoyancy));
+    if ~isempty(feasibleHighBuoyancy)
+        [~, idxHigh] = max(feasibleHighBuoyancy.total_power_reduction_percent);
+        bestHigh = feasibleHighBuoyancy(idxHigh, :);
+        fprintf('Best power reduction for BR >= 0.70: %.2f%%\n', bestHigh.total_power_reduction_percent);
+        fprintf('Best BR >= 0.70 case: BR=%.3f, T_on=%.2f s, T_off=%.2f s, off_fraction=%.3f, duty_cycle_type=%s\n', ...
+            bestHigh.buoyancy_ratio, bestHigh.T_on_s, bestHigh.T_off_s, bestHigh.off_fraction, string(bestHigh.duty_cycle_type));
+        fprintf('Highest feasible buoyancy ratio for BR >= 0.70 subset: %.3f\n', max(feasibleHighBuoyancy.buoyancy_ratio));
     else
-        fprintf('Best feasible case (off_fraction >= 0.25): none found.\n');
+        fprintf('No feasible cases found for BR >= 0.70.\n');
     end
 else
     fprintf('\nClosest infeasible case: BR=%.3f, T_on=%.2f s, T_off=%.2f s, failed checks=%d, total power reduction=%.2f%%, altitude drop=%.4f m\n', ...
@@ -262,14 +255,28 @@ if any(firstFeasibleMask)
     maxFeasibleBuoyancy = max(feasibleByBuoyancy.buoyancy_ratio(firstFeasibleMask));
     lowerSweepBound = min(feasibleByBuoyancy.buoyancy_ratio);
     if abs(firstFeasibleBuoyancy - lowerSweepBound) < 1e-12
-        fprintf('\nThreshold answer: Feasible cases were found from the lower bound of the tested sweep, BR=%.3f, up to BR=%.3f. A lower-buoyancy sweep would be required to identify the true lower feasibility threshold.\n', ...
-            firstFeasibleBuoyancy, maxFeasibleBuoyancy);
+        fprintf('\nLower-bound note: Feasible cases exist at the minimum tested buoyancy ratio. This means the true lower feasibility threshold may be below the tested range.\n');
     else
-        fprintf('\nThreshold answer: duty-cycled thrust first becomes feasible at buoyancy ratio %.3f and remains feasible up to BR=%.3f under this sweep (excluding BR=1.00 idealized reference).\n', ...
+        fprintf('\nLower-bound note: Feasible cases first appear at BR=%.3f and remain feasible up to BR=%.3f under the tested range.\n', ...
             firstFeasibleBuoyancy, maxFeasibleBuoyancy);
     end
 else
-    fprintf('\nThreshold answer: no feasible duty-cycled case found in this buoyancy sweep.\n');
+    fprintf('\nLower-bound note: No feasible duty-cycled case was found in the tested buoyancy range.\n');
+end
+
+if feasibleCaseCount > 0
+    thresholdSource = summaryTable(~summaryTable.is_idealized_neutral_reference, :);
+    sweepMin = min(thresholdSource.buoyancy_ratio);
+    [~, idxBestAll] = max(summaryTable(summaryTable.feasible, :).total_power_reduction_percent);
+    feasibleAll = summaryTable(summaryTable.feasible, :);
+    bestAll = feasibleAll(idxBestAll, :);
+    if abs(bestAll.buoyancy_ratio - sweepMin) < 1e-12
+        if abs(sweepMin) < 1e-12 && abs(bestAll.buoyancy_ratio) < 1e-12
+            fprintf('Optimum note: The best power reduction occurs at BR = 0. This indicates the model is favouring thrust pulsing even without buoyancy assistance, so the duty-cycle control model should be interpreted cautiously for a conventional multirotor.\n');
+        else
+            fprintf('Optimum note: The best power reduction occurs at the minimum tested buoyancy ratio. The optimum has not been captured unless the sweep starts at BR = 0.\n');
+        end
+    end
 end
 
 if feasibleCaseCount == 0
@@ -298,22 +305,23 @@ fprintf('  - duty_cycle_summary_table.csv\n');
 fprintf('  - duty_cycle_feasibility_table.csv\n');
 fprintf('  - duty_cycle_best_cases.csv\n');
 fprintf('  - duty_cycle_feasible_cases_min_off_fraction_25.csv\n');
+fprintf('  - duty_cycle_high_buoyancy_relevant_cases.csv\n');
+fprintf('  - duty_cycle_high_buoyancy_summary.csv\n');
 fprintf('  - duty_cycle_failed_cases.csv\n');
 fprintf('  - duty_cycle_closest_cases.csv\n');
 fprintf('  - duty_cycle_optimum_summary.csv\n');
+fprintf('  - duty_cycle_feasibility_audit.csv\n');
 fprintf('  - feasibility_by_buoyancy_ratio.csv\n');
 fprintf('  - buoyancy_feasibility_threshold.csv\n');
+fprintf('  - altitude_threshold_summary_by_buoyancy.csv\n');
 fprintf('  - duty_cycle_assumptions.md\n');
 fprintf('  - power_vs_buoyancy_ratio.png\n');
-fprintf('  - duty_cycle_feasibility_map.png\n');
+fprintf('  - altitude_margin_vs_buoyancy_ratio.png\n');
 fprintf('  - altitude_drop_vs_toff.png\n');
-fprintf('  - energy_per_cycle_comparison.png\n');
 fprintf('  - best_case_summary.png\n');
 fprintf('  - buoyancy_feasibility_boundary.png\n');
-fprintf('  - best_power_reduction_vs_buoyancy_ratio.png\n');
 fprintf('  - power_reduction_curve_with_optimum.png\n');
 fprintf('  - off_fraction_vs_power_reduction.png\n');
-fprintf('  - duty_cycle_feasibility_map_BR_*.png\n');
 
 if isempty(parameterTable)
     fprintf('Warning: parameter table is empty.\n');

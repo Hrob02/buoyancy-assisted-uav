@@ -38,9 +38,6 @@ matlab/data/generated/
 data/generated/
 !data/generated/.gitkeep
 
-# Ignore large results file
-results/duty_cycle_battery/vertical_control_timeseries.csv
-
 # ─── VS Code ──────────────────────────────────────────────────────────────────
 .vscode/
 *.code-workspace
