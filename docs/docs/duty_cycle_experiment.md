@@ -1,162 +1,104 @@
-# Duty-Cycle Vertical Control Experiment
+# Duty-Cycle Thrust Evaluation (MATLAB)
 
-This experiment evaluates whether duty-cycled thrust is useful under buoyancy-assisted flight by measuring both energy use and vertical regulation performance.
+This repository now uses a MATLAB-first duty-cycle evaluation pipeline for buoyancy-assisted Crazyflie analysis.
 
-## Research Question
+## Pipeline Location
 
-The central question is:
+- `matlab/duty_cycle/run_duty_cycle_analysis.m`
 
-$$
-\text{Can duty-cycled thrust reduce energy use while maintaining acceptable altitude regulation?}
-$$
+## What It Compares
 
-This is not a pure battery-life problem. A controller is only useful if it saves energy **and** stays within stability limits.
+1. Continuous hover with buoyancy assistance.
+2. Duty-cycled thrust with buoyancy assistance.
 
-## Dynamic Model
+Both are evaluated over the same cycle period:
 
-The experiment uses a 1D vertical model:
+- `T_cycle = T_on + T_off`
 
-$$
-m\ddot z = T(t) + F_b + d(t) - mg
-$$
+The analysis reports whether duty-cycled thrust is beneficial and physically feasible.
 
-where:
+## Default Sweep Focus
 
-- $m$ is total mass
-- $z$ is altitude error relative to the reference hover position
-- $T(t)$ is rotor thrust
-- $F_b$ is buoyant force
-- $d(t)$ is a sinusoidal vertical disturbance force
+The default experiment now uses a near-neutral buoyancy sweep to target the intended design region where helium supports most of the vehicle weight:
 
-Linear damping is also included in the simulation to keep the vertical dynamics realistic:
+- `buoyancy_ratios = 0.85:0.005:0.995`
+- optional idealized reference case: `buoyancy_ratio = 1.00`
+- `T_on_values_s = 0.05:0.05:1.00`
+- `T_off_values_s = 0.10:0.10:5.00`
 
-$$
-\ddot z = \frac{T(t) + F_b + d(t) - mg}{m} - c\dot z
-$$
+Supported sweep modes in configuration:
 
-## Battery and PWM Model
+- `near_neutral` (default)
+- `broad`
+- `custom`
 
-The battery model is anchored to a Crazyflie-style baseline hover duration of 7 minutes for no-buoyancy continuous hover.
+## Core Feasibility Checks
 
-Motor voltage and PWM follow:
+A duty-cycle case is only marked feasible when all checks pass:
 
-$$
-v_{motor} = v_{bat}\frac{pwm}{pwm_{max}}
-$$
+- average total duty-cycle power is lower than continuous-hover total power,
+- altitude drop remains within configured tolerance,
+- burst power and burst current stay below battery limits,
+- required on-thrust stays below Crazyflie-scale thrust capability estimate.
 
-The required PWM increases as battery voltage decreases for the same thrust demand. When the required PWM exceeds the available maximum, the model records actuator saturation.
+## Result Interpretation Language
 
-Battery drain is modeled relative to baseline hover power:
+Console output and generated markdown use conditional interpretation text:
 
-$$
-\dot B = -\frac{100}{T_{hover,base}}\,P_{frac}(t)
-$$
+- If feasible cases are found: duty cycling can reduce total average power, but gains are typically marginal and limited to a narrow buoyancy-ratio and timing region.
+- If feasible cases are not found: under current assumptions, continuous low-thrust hover is more efficient than the tested motor-off/motor-on strategy.
 
-where $B$ is battery percentage and $P_{frac}(t)$ is the instantaneous power fraction relative to no-buoyancy hover.
+Case labels are also conditional:
 
-## Controllers Compared
+- `Best feasible case` is reported when at least one feasible case exists.
+- `Closest infeasible case` is reported only when no feasible case exists.
 
-The experiment compares four control modes:
+Feasibility threshold wording is bounded by the tested sweep range:
 
-1. No buoyancy, continuous thrust
-2. Buoyancy-assisted, continuous thrust
-3. Buoyancy-assisted, duty-cycled thrust
-4. Buoyancy-assisted, hybrid control
+- If feasibility starts at the lower tested buoyancy bound, output states that a lower-buoyancy sweep is required to identify the true lower threshold.
+- Otherwise, output reports the first buoyancy ratio where feasibility appears.
 
-The hybrid controller uses duty-cycled thrust near equilibrium and switches back to continuous control when altitude or velocity errors exceed thresholds.
+## Input Baseline
 
-## Disturbance Input
+The model uses Crazyflie-focused baseline values (mass, battery, nominal voltage, C-rating, rotor geometry, and environmental constants) from the duty-cycle configuration file:
 
-The experiment now supports three disturbance profiles:
+- `matlab/duty_cycle/config_duty_cycle_parameters.m`
 
-1. Sinusoidal forcing
-2. Step disturbance
-3. Windowed gust disturbance
+## Generated Outputs
 
-The sinusoidal case is:
+CSV and markdown outputs:
 
-$$
-d(t) = A_d\sin(2\pi f_d t)
-$$
+- `matlab/results/duty_cycle/duty_cycle_parameter_table.csv`
+- `matlab/results/duty_cycle/duty_cycle_summary_table.csv`
+- `matlab/results/duty_cycle/duty_cycle_feasibility_table.csv`
+- `matlab/results/duty_cycle/duty_cycle_best_cases.csv`
+- `matlab/results/duty_cycle/duty_cycle_closest_cases.csv`
+- `matlab/results/duty_cycle/duty_cycle_failed_cases.csv`
+- `matlab/results/duty_cycle/feasibility_by_buoyancy_ratio.csv`
+- `matlab/results/duty_cycle/near_neutral_feasibility_threshold.csv`
+- `matlab/results/duty_cycle/duty_cycle_assumptions.md`
+- `matlab/results/duty_cycle/continuous_hover_baseline_cases.csv`
 
-The step case is a constant offset applied after a start time, and the gust case is a finite-duration sinusoid multiplied by a decaying envelope. This gives a cleaner progression from frequency-domain testing to transient-response testing.
+Figure outputs:
 
-For this project, the primary assumption is low-disturbance indoor operation. The default run therefore uses a lower disturbance force ratio and lower frequency sweep for the main comparison. The step profile is retained as a stress-test profile to represent higher-disturbance conditions (for example, drafty or outdoor-like scenarios).
+- `matlab/figures/duty_cycle/power_vs_buoyancy_ratio.png`
+- `matlab/figures/duty_cycle/endurance_vs_buoyancy_ratio.png`
+- `matlab/figures/duty_cycle/endurance_vs_buoyancy_ratio_log.png`
+- `matlab/figures/duty_cycle/duty_cycle_feasibility_map.png`
+- `matlab/figures/duty_cycle/duty_cycle_feasibility_map_BR_0p900.png`
+- `matlab/figures/duty_cycle/duty_cycle_feasibility_map_BR_0p950.png`
+- `matlab/figures/duty_cycle/duty_cycle_feasibility_map_BR_0p980.png`
+- `matlab/figures/duty_cycle/duty_cycle_feasibility_map_BR_0p990.png`
+- `matlab/figures/duty_cycle/duty_cycle_feasibility_map_BR_0p995.png`
+- `matlab/figures/duty_cycle/altitude_drop_vs_toff.png`
+- `matlab/figures/duty_cycle/energy_per_cycle_comparison.png`
+- `matlab/figures/duty_cycle/best_case_summary.png`
+- `matlab/figures/duty_cycle/best_power_reduction_vs_buoyancy_ratio.png`
+- `matlab/figures/duty_cycle/best_endurance_improvement_vs_buoyancy_ratio.png`
+- `matlab/figures/duty_cycle/near_neutral_feasibility_boundary.png`
 
-## Metrics
+## Notes
 
-Each run records both energy and regulation metrics.
-
-Energy metrics:
-
-$$
-E_{use} = 100 - B_{final}
-$$
-
-$$
-\bar P = \frac{1}{T}\int_0^T P_{frac}(t)\,dt
-$$
-
-Stability metrics:
-
-$$
-e_{RMS} = \sqrt{\frac{1}{T}\int_0^T z(t)^2\,dt}
-$$
-
-$$
-e_{max} = \max_t |z(t)|
-$$
-
-The simulation also records time spent outside an altitude tolerance band.
-
-## Decision Rule
-
-Duty-cycled thrust is only considered useful if it satisfies both:
-
-$$
-e_{max} \le e_{allow}
-$$
-
-and
-
-$$
-e_{RMS} \le e_{RMS,allow}
-$$
-
-while also reducing energy use relative to continuous buoyancy-assisted control.
-
-## Interpreting Results
-
-The relevant conclusion is not simply that continuous control is better. Continuous control will usually be the stability reference. The real scientific question is whether duty-cycled or hybrid control can achieve an acceptable energy-stability tradeoff.
-
-Possible outcomes:
-
-- Lower energy and acceptable error: duty cycling is a viable strategy.
-- Lower energy but poor regulation: duty cycling is not practically useful on its own.
-- Similar energy and worse regulation: duty cycling offers no advantage.
-- Hybrid improves energy while preserving regulation: hybrid control is the better operating strategy.
-
-If two plotted outputs overlap exactly, the plotting code suppresses the duplicate line so the figure only shows variables that actually change the output.
-
-## Output Files
-
-The Python experiment writes:
-
-- `results/duty_cycle_battery/vertical_control_summary.csv`
-- `results/duty_cycle_battery/vertical_control_timeseries.csv`
-- `results/duty_cycle_battery/vertical_control_experiment.png`
-- `results/duty_cycle_battery/vertical_control_summary_report.md`
-
-These outputs are intended to support both engineering interpretation and report-ready figures.
-
-## Reporting Utility
-
-To generate a compact Markdown interpretation from the summary CSV, run:
-
-```bash
-python scripts/summarize_duty_cycle_experiment.py
-```
-
-This writes a short report that identifies the lowest-energy stable controller for each disturbance profile.
-
-Because each run is simulated until depletion, battery-used percentage is near 100% by design. The report therefore ranks stable controllers by endurance (time to empty) and regulation error.
+- This is a simulation pipeline for feasibility screening.
+- It does not replace experimental validation or a closed-loop flight controller.
+- Assumptions and model limitations are documented in the generated assumptions file.

@@ -277,8 +277,9 @@ run('scripts/main.m')
 
 This repo includes task shortcuts in `.vscode/tasks.json`:
 
-- **Run ROS Sim (WSL)** — launches `scripts/run_sim.sh` in WSL
-- **Run MATLAB Sim** — runs `matlab/scripts/main.m` via MATLAB batch mode
+- **Run ROS Sim** — launches the ROS 2 Gazebo simulation in WSL
+- **Run MATLAB Envelope Study** — runs `matlab/scripts/main.m` via MATLAB batch mode
+- **Run MATLAB Duty-Cycle Analysis** — runs `matlab/duty_cycle/run_duty_cycle_analysis.m` via MATLAB batch mode
 
 Run them with:
 
