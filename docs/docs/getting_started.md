@@ -38,11 +38,16 @@ Use Stop ROS Sim to cleanly stop Gazebo and related ROS processes.
 bash scripts/run_sim.sh
 ```
 
-### MATLAB envelope study
+### MATLAB envelope geometry study
 
 ```bash
 matlab -batch "cd('matlab'); run('scripts/setup_paths.m'); run('scripts/main.m');"
 ```
+
+Envelope geometry outputs are written to:
+
+- matlab/results/envelope_geometry
+- matlab/figures/envelope_geometry
 
 ### MATLAB duty-cycle analysis
 
