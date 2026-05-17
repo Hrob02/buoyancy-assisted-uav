@@ -87,6 +87,22 @@ lines{end+1} = ['The main result of the duty-cycle analysis is the buoyancy-rati
 lines{end+1} = ['Below the lower limit, duty-cycled thrust may theoretically reduce power, but the required recovery behaviour fails physical constraints, especially altitude tolerance and burst thrust/current limits. ' ...
     'Above the upper limit, the vehicle is sufficiently buoyant that continuous low-thrust operation is already very efficient, so duty cycling no longer reduces total average power.'];
 lines{end+1} = '';
+
+practicalRows = summaryTable(summaryTable.feasible_moderate_duty & summaryTable.passes_practical_followup_threshold, :);
+if isempty(practicalRows)
+    practicalRangeText = 'No practically significant moderate duty-cycle range was found for the selected follow-up threshold.';
+else
+    practicalRangeText = sprintf('For the moderate duty-cycle definition, the practically significant range was BR = %.3f to BR = %.3f.', ...
+        min(practicalRows.buoyancy_ratio), max(practicalRows.buoyancy_ratio));
+end
+lines{end+1} = '## Practical significance assessment';
+lines{end+1} = 'This simulation does not assess statistical significance because it does not use repeated experimental measurements or uncertainty distributions. Instead, the analysis assesses practical engineering significance using a configurable total power reduction threshold.';
+lines{end+1} = 'A duty-cycle case is considered practically significant only if it first satisfies all feasibility constraints and then exceeds the selected power-reduction threshold.';
+lines{end+1} = sprintf('The default follow-up threshold is %.1f%% total average power reduction. This threshold is used to identify cases where the simulated power saving may be large enough to justify practical implementation, further control development, or physical validation.', ...
+    cfg.practical_significance.minimum_followup_threshold_percent);
+lines{end+1} = practicalRangeText;
+lines{end+1} = '';
+
 lines{end+1} = '## Relative saving versus absolute minimum power';
 lines{end+1} = ['The maximum percentage power reduction is not necessarily the same as the lowest absolute power consumption. ' ...
     'Percentage saving compares duty-cycled thrust against continuous thrust at the same buoyancy ratio. ' ...

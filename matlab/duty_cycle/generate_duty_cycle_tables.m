@@ -74,12 +74,16 @@ validBRRangesTable = build_valid_br_ranges_table(cfg, summaryTable);
 mainResultsTable = build_main_results_table(cfg, summaryTable, validBRRangesTable);
 
 % Core outputs only.
-writetable(summaryTable, fullfile(cfg.paths.results_dir, 'duty_cycle_summary_table.csv'));
 writetable(validBRRangesTable, fullfile(cfg.paths.results_dir, 'duty_cycle_valid_BR_ranges.csv'));
 writetable(feasibilityAuditTable, fullfile(cfg.paths.results_dir, 'duty_cycle_feasibility_audit.csv'));
 writetable(mainResultsTable, fullfile(cfg.paths.results_dir, 'duty_cycle_main_results.csv'));
+% Practical significance summary table (core output).
+practicalSignificanceSummaryTable = build_practical_significance_summary(cfg, summaryTable);
+writetable(practicalSignificanceSummaryTable, fullfile(cfg.paths.results_dir, 'duty_cycle_practical_significance_summary.csv'));
 
 if cfg.output.write_debug_tables
+    writetable(summaryTable, fullfile(cfg.paths.results_dir, 'duty_cycle_summary_table.csv'));
+
     filteredOff25Table = summaryTable(summaryTable.feasible & (summaryTable.off_fraction >= 0.25), :);
     if ~isempty(filteredOff25Table)
         filteredOff25Table = sortrows(filteredOff25Table, ...
@@ -127,6 +131,8 @@ moderateValid = source(source.feasible_moderate_duty, :);
 
 rowCells = {};
 
+rowCells{end+1,1} = make_range_row('all_feasible_cases_valid_range', source, validBRRangesTable, 'all_feasible_cases', ...
+    0.0, 0.0); %#ok<AGROW>
 rowCells{end+1,1} = make_range_row('short_break_pulsing_valid_range', source, validBRRangesTable, 'short_break_pulsing', ...
     cfg.thresholds.short_break_min_off_fraction, cfg.thresholds.short_break_min_T_off_s); %#ok<AGROW>
 rowCells{end+1,1} = make_range_row('moderate_duty_cycle_valid_range', source, validBRRangesTable, 'moderate_duty_cycle', ...
@@ -199,6 +205,46 @@ else
 end
 
 mainResultsTable = vertcat(rowCells{:});
+mainResultsTable = add_practical_columns_to_main_results(mainResultsTable, validBRRangesTable);
+end
+
+function mainResultsTable = add_practical_columns_to_main_results(mainResultsTable, validBRRangesTable)
+n = height(mainResultsTable);
+mainResultsTable.lowest_practically_significant_BR = nan(n, 1);
+mainResultsTable.highest_practically_significant_BR = nan(n, 1);
+mainResultsTable.number_of_practically_significant_BR_values = nan(n, 1);
+mainResultsTable.total_practically_significant_cases = nan(n, 1);
+mainResultsTable.best_practically_significant_BR = nan(n, 1);
+mainResultsTable.best_practically_significant_power_reduction_percent = nan(n, 1);
+mainResultsTable.best_practically_significant_T_on_s = nan(n, 1);
+mainResultsTable.best_practically_significant_T_off_s = nan(n, 1);
+mainResultsTable.best_practically_significant_altitude_margin_m = nan(n, 1);
+
+resultNames = string(mainResultsTable.result_name);
+    categories = ["all_feasible_cases"; "short_break_pulsing"; "moderate_duty_cycle"; "strong_duty_cycle"];
+for i = 1:numel(categories)
+    cat = categories(i);
+    src = validBRRangesTable(strcmp(string(validBRRangesTable.category), cat), :);
+    if isempty(src)
+        continue;
+    end
+
+    targetName = cat + "_valid_range";
+    idx = find(resultNames == targetName, 1, 'first');
+    if isempty(idx)
+        continue;
+    end
+
+    mainResultsTable.lowest_practically_significant_BR(idx) = src.lowest_practically_significant_BR;
+    mainResultsTable.highest_practically_significant_BR(idx) = src.highest_practically_significant_BR;
+    mainResultsTable.number_of_practically_significant_BR_values(idx) = src.number_of_practically_significant_BR_values;
+    mainResultsTable.total_practically_significant_cases(idx) = src.total_practically_significant_cases;
+    mainResultsTable.best_practically_significant_BR(idx) = src.best_practically_significant_BR;
+    mainResultsTable.best_practically_significant_power_reduction_percent(idx) = src.best_practically_significant_power_reduction_percent;
+    mainResultsTable.best_practically_significant_T_on_s(idx) = src.best_practically_significant_T_on_s;
+    mainResultsTable.best_practically_significant_T_off_s(idx) = src.best_practically_significant_T_off_s;
+    mainResultsTable.best_practically_significant_altitude_margin_m(idx) = src.best_practically_significant_altitude_margin_m;
+end
 end
 
 function rowTable = make_range_row(resultName, source, validBRRangesTable, categoryName, minOffFraction, minTOff)
@@ -295,6 +341,7 @@ catRows = source(categoryMask, :);
 powerOnlyRows = catRows(catRows.power_reduction_pass, :);
 physicalOnlyRows = catRows(catRows.physical_constraints_pass, :);
 validRows = catRows(catRows.power_reduction_pass & catRows.physical_constraints_pass, :);
+practicalRows = validRows(validRows.passes_practical_followup_threshold, :);
 
 lowest_BR_with_power_reduction_only = bound_or_nan(powerOnlyRows, true);
 highest_BR_with_power_reduction_only = bound_or_nan(powerOnlyRows, false);
@@ -302,6 +349,8 @@ lowest_BR_passing_physical_constraints_only = bound_or_nan(physicalOnlyRows, tru
 highest_BR_passing_physical_constraints_only = bound_or_nan(physicalOnlyRows, false);
 lowest_valid_BR = bound_or_nan(validRows, true);
 highest_valid_BR = bound_or_nan(validRows, false);
+lowest_practically_significant_BR = bound_or_nan(practicalRows, true);
+highest_practically_significant_BR = bound_or_nan(practicalRows, false);
 
 if isempty(validRows)
     lower_bound_found = false;
@@ -318,6 +367,13 @@ if isempty(validRows)
     dominant_failure_below_lower_bound = "No valid cases for this duty-cycle definition.";
     dominant_failure_above_upper_bound = "No valid cases for this duty-cycle definition.";
     interpretation_note = "No valid buoyancy-ratio interval found under this duty-cycle definition.";
+    number_of_practically_significant_BR_values = 0;
+    total_practically_significant_cases = 0;
+    best_practically_significant_BR = nan;
+    best_practically_significant_power_reduction_percent = nan;
+    best_practically_significant_T_on_s = nan;
+    best_practically_significant_T_off_s = nan;
+    best_practically_significant_altitude_margin_m = nan;
 else
     number_of_BR_values_valid = numel(unique(validRows.buoyancy_ratio));
     total_valid_cases = height(validRows);
@@ -371,6 +427,27 @@ else
     end
 
     interpretation_note = sprintf("%s %s", lowerText, upperText);
+
+    if isempty(practicalRows)
+        number_of_practically_significant_BR_values = 0;
+        total_practically_significant_cases = 0;
+        best_practically_significant_BR = nan;
+        best_practically_significant_power_reduction_percent = nan;
+        best_practically_significant_T_on_s = nan;
+        best_practically_significant_T_off_s = nan;
+        best_practically_significant_altitude_margin_m = nan;
+    else
+        number_of_practically_significant_BR_values = numel(unique(practicalRows.buoyancy_ratio));
+        total_practically_significant_cases = height(practicalRows);
+        rankedPractical = sortrows(practicalRows, {'total_power_reduction_percent', 'altitude_drop_m', 'P_on_required_W', 'T_off_s'}, ...
+            {'descend', 'ascend', 'ascend', 'ascend'});
+        bestPractical = rankedPractical(1, :);
+        best_practically_significant_BR = bestPractical.buoyancy_ratio;
+        best_practically_significant_power_reduction_percent = bestPractical.total_power_reduction_percent;
+        best_practically_significant_T_on_s = bestPractical.T_on_s;
+        best_practically_significant_T_off_s = bestPractical.T_off_s;
+        best_practically_significant_altitude_margin_m = bestPractical.altitude_margin_m;
+    end
 end
 
 rowTable = table( ...
@@ -379,10 +456,15 @@ rowTable = table( ...
     lowest_BR_with_power_reduction_only, highest_BR_with_power_reduction_only, ...
     lowest_BR_passing_physical_constraints_only, highest_BR_passing_physical_constraints_only, ...
     lowest_valid_BR, highest_valid_BR, ...
+    lowest_practically_significant_BR, highest_practically_significant_BR, ...
     lower_bound_found, upper_bound_found, ...
     number_of_BR_values_valid, total_valid_cases, ...
+    number_of_practically_significant_BR_values, total_practically_significant_cases, ...
     best_BR_in_valid_range, best_power_reduction_percent, best_T_on_s, best_T_off_s, ...
+    best_practically_significant_BR, best_practically_significant_power_reduction_percent, ...
+    best_practically_significant_T_on_s, best_practically_significant_T_off_s, ...
     best_off_fraction, best_altitude_drop_m, best_altitude_margin_m, ...
+    best_practically_significant_altitude_margin_m, ...
     string(dominant_failure_below_lower_bound), string(dominant_failure_above_upper_bound), ...
     string(interpretation_note), ...
     'VariableNames', {'category', 'min_off_fraction_required', 'min_T_off_s_required', ...
@@ -390,10 +472,15 @@ rowTable = table( ...
     'lowest_BR_with_power_reduction_only', 'highest_BR_with_power_reduction_only', ...
     'lowest_BR_passing_physical_constraints_only', 'highest_BR_passing_physical_constraints_only', ...
     'lowest_valid_BR', 'highest_valid_BR', ...
+    'lowest_practically_significant_BR', 'highest_practically_significant_BR', ...
     'lower_bound_found', 'upper_bound_found', ...
     'number_of_BR_values_valid', 'total_valid_cases', ...
+    'number_of_practically_significant_BR_values', 'total_practically_significant_cases', ...
     'best_BR_in_valid_range', 'best_power_reduction_percent', 'best_T_on_s', 'best_T_off_s', ...
+    'best_practically_significant_BR', 'best_practically_significant_power_reduction_percent', ...
+    'best_practically_significant_T_on_s', 'best_practically_significant_T_off_s', ...
     'best_off_fraction', 'best_altitude_drop_m', 'best_altitude_margin_m', ...
+    'best_practically_significant_altitude_margin_m', ...
     'dominant_failure_below_lower_bound', 'dominant_failure_above_upper_bound', 'interpretation_note'});
 end
 
@@ -721,4 +808,85 @@ optimumSummaryTable = table( ...
     best_total_power_reduction_percent, derived_endurance_improvement_percent, ...
     altitude_drop_m, altitude_tolerance_m, altitude_margin_m, ...
     feasible_case_count, feasible_percent);
+end
+
+function practicalSignificanceSummaryTable = build_practical_significance_summary(cfg, summaryTable)
+source = summaryTable(~summaryTable.is_idealized_neutral_reference, :);
+if isempty(source)
+    source = summaryTable;
+end
+
+categories = ["all_feasible_cases"; "short_break_pulsing"; "moderate_duty_cycle"; "strong_duty_cycle"];
+n = numel(categories);
+
+duty_cycle_definition = categories;
+valid_BR_min = nan(n, 1);
+valid_BR_max = nan(n, 1);
+practical_followup_threshold_percent = repmat(cfg.practical_significance.minimum_followup_threshold_percent, n, 1);
+practically_significant_BR_min = nan(n, 1);
+practically_significant_BR_max = nan(n, 1);
+practically_significant_case_count = zeros(n, 1);
+negligible_case_count = zeros(n, 1);
+marginal_case_count = zeros(n, 1);
+moderate_case_count = zeros(n, 1);
+strong_case_count = zeros(n, 1);
+best_power_reduction_percent = nan(n, 1);
+best_power_reduction_category = strings(n, 1);
+interpretation_note = strings(n, 1);
+
+for i = 1:n
+    cat = categories(i);
+    mask = get_valid_mask_for_category(source, cat);
+    valid = source(mask, :);
+    practical = valid(valid.passes_practical_followup_threshold, :);
+
+    if ~isempty(valid)
+        valid_BR_min(i) = min(valid.buoyancy_ratio);
+        valid_BR_max(i) = max(valid.buoyancy_ratio);
+    end
+
+    negligible_case_count(i) = sum(valid.practical_significance_category == "negligible");
+    marginal_case_count(i) = sum(valid.practical_significance_category == "marginal");
+    moderate_case_count(i) = sum(valid.practical_significance_category == "moderate");
+    strong_case_count(i) = sum(valid.practical_significance_category == "strong");
+
+    if isempty(practical)
+        best_power_reduction_category(i) = "n/a";
+        interpretation_note(i) = sprintf([ ...
+            '%s are physically valid from BR = %s to BR = %s. ' ...
+            'Using a %.1f%% practical follow-up threshold, no practically significant cases were found.'], ...
+            strrep(char(cat), '_', ' '), fmt_or_none(valid_BR_min(i), '%.3f'), fmt_or_none(valid_BR_max(i), '%.3f'), ...
+            cfg.practical_significance.minimum_followup_threshold_percent);
+        continue;
+    end
+
+    practically_significant_BR_min(i) = min(practical.buoyancy_ratio);
+    practically_significant_BR_max(i) = max(practical.buoyancy_ratio);
+    practically_significant_case_count(i) = height(practical);
+
+    [best_power_reduction_percent(i), idxBest] = max(practical.total_power_reduction_percent);
+    best_power_reduction_category(i) = practical.practical_significance_category(idxBest);
+
+    interpretation_note(i) = sprintf([ ...
+        '%s are physically valid from BR = %s to BR = %s. ' ...
+        'Using a %.1f%% practical follow-up threshold, practically significant cases occur from BR = %.3f to BR = %.3f. ' ...
+        'Above this range, duty cycling may remain valid but the simulated power saving is below the selected follow-up threshold.'], ...
+        strrep(char(cat), '_', ' '), fmt_or_none(valid_BR_min(i), '%.3f'), fmt_or_none(valid_BR_max(i), '%.3f'), ...
+        cfg.practical_significance.minimum_followup_threshold_percent, ...
+        practically_significant_BR_min(i), practically_significant_BR_max(i));
+end
+
+practicalSignificanceSummaryTable = table( ...
+    duty_cycle_definition, valid_BR_min, valid_BR_max, practical_followup_threshold_percent, ...
+    practically_significant_BR_min, practically_significant_BR_max, practically_significant_case_count, ...
+    negligible_case_count, marginal_case_count, moderate_case_count, strong_case_count, ...
+    best_power_reduction_percent, best_power_reduction_category, interpretation_note);
+end
+
+function text = fmt_or_none(value, fmt)
+if isnan(value)
+    text = 'none';
+else
+    text = sprintf(fmt, value);
+end
 end

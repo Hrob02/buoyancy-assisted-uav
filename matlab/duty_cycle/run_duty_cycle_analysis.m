@@ -39,10 +39,11 @@ end
 function clean_new_output_directories(cfg)
 resultFiles = {
     'duty_cycle_main_results.csv'
-    'duty_cycle_summary_table.csv'
     'duty_cycle_valid_BR_ranges.csv'
+    'duty_cycle_practical_significance_summary.csv'
     'duty_cycle_feasibility_audit.csv'
     'duty_cycle_assumptions.md'
+    'duty_cycle_summary_table.csv'
     'duty_cycle_parameter_table.csv'
     'duty_cycle_feasibility_table.csv'
     'duty_cycle_best_cases.csv'
@@ -60,9 +61,10 @@ resultFiles = {
 
 figureFiles = {
     'valid_BR_range_by_duty_definition.png'
-    'power_reduction_curve_with_optimum.png'
+    'practical_significance_vs_buoyancy_ratio.png'
     'altitude_margin_vs_buoyancy_ratio.png'
     'absolute_power_comparison.png'
+    'power_reduction_curve_with_optimum.png'
     'power_vs_buoyancy_ratio.png'
     'altitude_drop_vs_toff.png'
     'best_case_summary.png'
@@ -155,6 +157,7 @@ if ~isempty(moderateRow) && ~isnan(moderateRow.lowest_valid_BR)
 end
 
 print_absolute_power_comparison(summaryTable);
+print_practical_significance_assessment(cfg, validBRRangesTable);
 
 if ~isempty(failedCasesTable)
     fprintf('\nMost common failure reasons:\n');
@@ -172,12 +175,12 @@ end
 
 fprintf('\nGenerated core files:\n');
 fprintf('  - duty_cycle_main_results.csv\n');
-fprintf('  - duty_cycle_summary_table.csv\n');
 fprintf('  - duty_cycle_valid_BR_ranges.csv\n');
+fprintf('  - duty_cycle_practical_significance_summary.csv\n');
 fprintf('  - duty_cycle_feasibility_audit.csv\n');
 fprintf('  - duty_cycle_assumptions.md\n');
 fprintf('  - valid_BR_range_by_duty_definition.png\n');
-fprintf('  - power_reduction_curve_with_optimum.png\n');
+fprintf('  - practical_significance_vs_buoyancy_ratio.png\n');
 fprintf('  - altitude_margin_vs_buoyancy_ratio.png\n');
 fprintf('  - absolute_power_comparison.png\n');
 
@@ -192,6 +195,49 @@ if ~isempty(mainResultsTable)
 end
 
 fprintf('\nDuty-cycle analysis complete.\n');
+end
+
+function print_practical_significance_assessment(cfg, validBRRangesTable)
+fprintf('\nPractical significance assessment\n');
+fprintf(['This is a deterministic simulation, so statistical significance is not assessed. ' ...
+    'Practical significance is assessed using a configurable power-reduction threshold.\n']);
+fprintf('Practical follow-up threshold: %.1f%%\n', cfg.practical_significance.minimum_followup_threshold_percent);
+
+moderateRow = validBRRangesTable(strcmp(string(validBRRangesTable.category), "moderate_duty_cycle"), :);
+if isempty(moderateRow)
+    fprintf('Moderate duty-cycle valid BR range: not available\n');
+    fprintf('Moderate duty-cycle practically significant BR range: not available\n');
+    fprintf('Best practically significant case: not available\n');
+    fprintf('Number of practically significant cases: 0\n');
+    return;
+end
+
+if isnan(moderateRow.lowest_valid_BR)
+    fprintf('Moderate duty-cycle valid BR range: none\n');
+else
+    fprintf('Moderate duty-cycle valid BR range: BR = %.3f to BR = %.3f\n', ...
+        moderateRow.lowest_valid_BR, moderateRow.highest_valid_BR);
+end
+
+if isnan(moderateRow.lowest_practically_significant_BR)
+    fprintf('Moderate duty-cycle practically significant BR range: none\n');
+    fprintf('Best practically significant case: none\n');
+    fprintf('Number of practically significant cases: %d\n', moderateRow.total_practically_significant_cases);
+else
+    fprintf('Moderate duty-cycle practically significant BR range: BR = %.3f to BR = %.3f\n', ...
+        moderateRow.lowest_practically_significant_BR, moderateRow.highest_practically_significant_BR);
+    fprintf('Best practically significant case: BR = %.3f, T_on = %.2f s, T_off = %.2f s, total power reduction = %.2f%%, altitude margin = %.3f m\n', ...
+        moderateRow.best_practically_significant_BR, ...
+        moderateRow.best_practically_significant_T_on_s, ...
+        moderateRow.best_practically_significant_T_off_s, ...
+        moderateRow.best_practically_significant_power_reduction_percent, ...
+        moderateRow.best_practically_significant_altitude_margin_m);
+    fprintf('Number of practically significant cases: %d\n', moderateRow.total_practically_significant_cases);
+    fprintf(['Using a %.1f%% power-reduction threshold, moderate duty-cycle cases are practically significant from BR = %.3f to BR = %.3f. ' ...
+        'Above this range, duty cycling may remain feasible but the power saving is below the selected follow-up threshold.\n'], ...
+        cfg.practical_significance.minimum_followup_threshold_percent, ...
+        moderateRow.lowest_practically_significant_BR, moderateRow.highest_practically_significant_BR);
+end
 end
 
 function print_category_summary(validBRRangesTable, summaryTable, categoryKey, categoryLabel, minOffFraction, minTOff)

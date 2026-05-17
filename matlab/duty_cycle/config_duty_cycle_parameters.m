@@ -59,6 +59,12 @@ cfg.sweep.efficiency_cases = struct( ...
 cfg.sim.altitude_tolerance_m = 0.25;
 cfg.sim.off_thrust_fraction = 0.0;
 cfg.sim.electronics_idle_power_W = 0.35;
+% Practical significance thresholds for power reduction (user-editable).
+cfg.practical_significance.negligible_threshold_percent = 2.0; % Below this, power saving is negligible.
+cfg.practical_significance.marginal_threshold_percent = 5.0;   % Marginally interesting for follow-up.
+cfg.practical_significance.moderate_threshold_percent = 10.0;  % Moderate engineering significance.
+% Minimum power reduction to justify practical follow-up testing.
+cfg.practical_significance.minimum_followup_threshold_percent = 5.0;
 
 cfg.output.write_debug_tables = false;
 cfg.output.write_debug_figures = false;

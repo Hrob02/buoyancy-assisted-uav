@@ -232,4 +232,20 @@ caseResult.endurance_continuous_min = caseResult.derived_endurance_continuous_mi
 caseResult.endurance_duty_min = caseResult.derived_endurance_duty_min;
 caseResult.endurance_improvement_percent = caseResult.derived_endurance_improvement_percent;
 
+% Practical engineering significance assessment.
+if total_power_reduction_percent < cfg.practical_significance.negligible_threshold_percent
+    practical_significance_category = "negligible";
+elseif total_power_reduction_percent < cfg.practical_significance.marginal_threshold_percent
+    practical_significance_category = "marginal";
+elseif total_power_reduction_percent < cfg.practical_significance.moderate_threshold_percent
+    practical_significance_category = "moderate";
+else
+    practical_significance_category = "strong";
+end
+
+passes_practical_followup_threshold = isFeasible && (total_power_reduction_percent >= cfg.practical_significance.minimum_followup_threshold_percent);
+
+caseResult.practical_significance_category = string(practical_significance_category);
+caseResult.passes_practical_followup_threshold = passes_practical_followup_threshold;
+
 end

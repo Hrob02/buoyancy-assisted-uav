@@ -56,6 +56,8 @@ infeasible_battery_limit = false(numCases, 1);
 infeasible_thrust_capability = false(numCases, 1);
 primary_failure_reason = strings(numCases, 1);
 failed_check_count = zeros(numCases, 1);
+practical_significance_category = strings(numCases, 1);
+passes_practical_followup_threshold = false(numCases, 1);
 
 idx = 0;
 for c = 1:height(continuousTable)
@@ -122,6 +124,8 @@ for c = 1:height(continuousTable)
                 infeasible_thrust_capability(idx) = result.infeasible_thrust_capability;
                 primary_failure_reason(idx) = result.primary_failure_reason;
                 failed_check_count(idx) = result.failed_check_count;
+                practical_significance_category(idx) = result.practical_significance_category;
+                passes_practical_followup_threshold(idx) = result.passes_practical_followup_threshold;
             end
         end
     end
@@ -141,7 +145,7 @@ summaryTable = table( ...
     failure_reason, failed_checks_list, eta_case, eta_total, ...
     sweep_mode, is_idealized_neutral_reference, infeasible_average_power, ...
     infeasible_altitude_tolerance, infeasible_battery_limit, infeasible_thrust_capability, ...
-    primary_failure_reason, failed_check_count);
+    primary_failure_reason, failed_check_count, practical_significance_category, passes_practical_followup_threshold);
 
 validate_feasibility_consistency(summaryTable);
 

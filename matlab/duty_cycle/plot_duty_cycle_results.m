@@ -14,9 +14,9 @@ end
 
 % Core figures.
 plot_valid_br_range_by_duty_definition(resultsFigDir, validBRRangesTable);
-plot_power_reduction_curve_with_optimum(resultsFigDir, summaryTable, sweepLabel, lineWidth);
+plot_practical_significance_vs_buoyancy_ratio(resultsFigDir, summaryTable, validBRRangesTable, cfg, sweepLabel, lineWidth);
 plot_altitude_margin_vs_buoyancy_ratio(resultsFigDir, summaryTable, sweepLabel, lineWidth);
-plot_absolute_power_comparison(resultsFigDir, summaryTable, validBRRangesTable, sweepLabel, lineWidth);
+plot_absolute_power_comparison(resultsFigDir, summaryTable, validBRRangesTable, cfg, sweepLabel, lineWidth);
 
 % Optional debug figures.
 if cfg.output.write_debug_figures
@@ -36,6 +36,7 @@ if cfg.output.write_debug_figures
     plot_best_case_summary(resultsFigDir, bestCasesTable, closestCase, noFeasible);
     plot_buoyancy_feasibility_boundary(resultsFigDir, summaryTable, sweepLabel, lineWidth);
     plot_off_fraction_vs_power_reduction(resultsFigDir, summaryTable, sweepLabel);
+    plot_power_reduction_curve_with_optimum(resultsFigDir, summaryTable, sweepLabel, lineWidth);
 end
 
 end
@@ -110,6 +111,61 @@ exportgraphics(fig, fullfile(resultsFigDir, 'power_reduction_curve_with_optimum.
 close(fig);
 end
 
+function plot_practical_significance_vs_buoyancy_ratio(resultsFigDir, summaryTable, validBRRangesTable, cfg, sweepLabel, lineWidth)
+fig = figure('Color', 'w', 'Visible', 'off');
+ax = axes(fig);
+hold(ax, 'on');
+
+source = summaryTable(~summaryTable.is_idealized_neutral_reference, :);
+if isempty(source)
+    source = summaryTable;
+end
+
+moderateValid = source(source.feasible_moderate_duty, :);
+if ~isempty(moderateValid)
+    brCurve = groupsummary(moderateValid, 'buoyancy_ratio', 'max', 'total_power_reduction_percent');
+    brCurve = sortrows(brCurve, 'buoyancy_ratio');
+    plot(ax, brCurve.buoyancy_ratio, brCurve.max_total_power_reduction_percent, '-o', 'LineWidth', lineWidth, ...
+        'Color', [0.00 0.45 0.74], 'DisplayName', 'Best valid moderate-duty power reduction');
+end
+
+yline(ax, 0.0, '--k', '0% power reduction', 'LineWidth', 1.1, 'DisplayName', '0% power reduction');
+yline(ax, cfg.practical_significance.minimum_followup_threshold_percent, '--', ...
+    sprintf('Follow-up threshold (%.1f%%)', cfg.practical_significance.minimum_followup_threshold_percent), ...
+    'LineWidth', 1.2, 'Color', [0.85 0.33 0.10], 'DisplayName', 'Follow-up threshold');
+yline(ax, cfg.practical_significance.negligible_threshold_percent, ':', ...
+    sprintf('Negligible threshold (%.1f%%)', cfg.practical_significance.negligible_threshold_percent), ...
+    'LineWidth', 1.0, 'Color', [0.50 0.50 0.50], 'DisplayName', 'Negligible threshold');
+yline(ax, cfg.practical_significance.moderate_threshold_percent, ':', ...
+    sprintf('Strong threshold (%.1f%%)', cfg.practical_significance.moderate_threshold_percent), ...
+    'LineWidth', 1.0, 'Color', [0.20 0.20 0.20], 'DisplayName', 'Strong threshold');
+
+modRange = validBRRangesTable(strcmp(string(validBRRangesTable.category), "moderate_duty_cycle"), :);
+if ~isempty(modRange) && ~isnan(modRange.lowest_valid_BR) && ~isnan(modRange.highest_valid_BR)
+    xline(ax, modRange.lowest_valid_BR, '--', 'Color', [0.20 0.20 0.20], 'LineWidth', 1.0, ...
+        'DisplayName', 'Moderate valid BR lower bound');
+    xline(ax, modRange.highest_valid_BR, '--', 'Color', [0.20 0.20 0.20], 'LineWidth', 1.0, ...
+        'DisplayName', 'Moderate valid BR upper bound');
+end
+if ~isempty(modRange) && ~isnan(modRange.lowest_practically_significant_BR) && ~isnan(modRange.highest_practically_significant_BR)
+    xline(ax, modRange.lowest_practically_significant_BR, '-', 'Color', [0.47 0.67 0.19], 'LineWidth', 1.4, ...
+        'DisplayName', 'Practical-significance BR lower bound');
+    xline(ax, modRange.highest_practically_significant_BR, '-', 'Color', [0.47 0.67 0.19], 'LineWidth', 1.4, ...
+        'DisplayName', 'Practical-significance BR upper bound');
+end
+
+hold(ax, 'off');
+grid(ax, 'on');
+xlabel(ax, 'Buoyancy ratio [-]');
+ylabel(ax, 'Best total power reduction [%]');
+title(ax, 'Practical Significance of Duty-Cycle Power Saving');
+subtitle(ax, {'Simulation-based engineering threshold, not statistical significance', sweepLabel});
+legend(ax, 'Location', 'best');
+
+exportgraphics(fig, fullfile(resultsFigDir, 'practical_significance_vs_buoyancy_ratio.png'));
+close(fig);
+end
+
 function plot_valid_br_range_by_duty_definition(resultsFigDir, validBRRangesTable)
 fig = figure('Color', 'w', 'Visible', 'off');
 ax = axes(fig);
@@ -150,7 +206,7 @@ exportgraphics(fig, fullfile(resultsFigDir, 'valid_BR_range_by_duty_definition.p
 close(fig);
 end
 
-function plot_absolute_power_comparison(resultsFigDir, summaryTable, validBRRangesTable, sweepLabel, lineWidth)
+function plot_absolute_power_comparison(resultsFigDir, summaryTable, validBRRangesTable, cfg, sweepLabel, lineWidth)
 fig = figure('Color', 'w', 'Visible', 'off');
 ax = axes(fig);
 hold(ax, 'on');
@@ -190,6 +246,18 @@ if ~isempty(modRange) && ~isnan(modRange.lowest_valid_BR)
     xline(ax, modRange.highest_valid_BR, '--', 'Color', [0.20 0.20 0.20], 'LineWidth', 1.2, ...
         'DisplayName', 'Moderate valid BR upper bound');
 end
+if ~isempty(modRange) && ~isnan(modRange.lowest_practically_significant_BR) && ~isnan(modRange.highest_practically_significant_BR)
+    xline(ax, modRange.lowest_practically_significant_BR, '-', 'Color', [0.47 0.67 0.19], 'LineWidth', 1.3, ...
+        'DisplayName', 'Practical-significance BR lower bound');
+    xline(ax, modRange.highest_practically_significant_BR, '-', 'Color', [0.47 0.67 0.19], 'LineWidth', 1.3, ...
+        'DisplayName', 'Practical-significance BR upper bound');
+end
+
+% Annotate practical follow-up threshold as a figure note to avoid visual clutter on power axis.
+text(ax, 0.01, 0.02, sprintf('Practical follow-up threshold: %.1f%% total power reduction', ...
+    cfg.practical_significance.minimum_followup_threshold_percent), ...
+    'Units', 'normalized', 'FontSize', 9, 'Color', [0.20 0.20 0.20], ...
+    'VerticalAlignment', 'bottom', 'HorizontalAlignment', 'left');
 
 hold(ax, 'off');
 grid(ax, 'on');
