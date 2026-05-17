@@ -69,6 +69,30 @@ lines{end+1} = '';
 lines{end+1} = '## Feasibility audit';
 lines{end+1} = 'Feasible cases must pass altitude, battery power, battery current, thrust capability, voltage, and total power reduction checks. The simulation generates an audit table and uses assertions to confirm that no case is marked feasible while failing any required criterion.';
 lines{end+1} = '';
+lines{end+1} = '## Valid buoyancy-ratio range definition';
+lines{end+1} = 'This analysis distinguishes between theoretical power reduction and physically valid duty-cycled thrust. A case is considered physically valid only if it reduces total average power while also satisfying altitude tolerance, battery current, battery power, thrust capability, and voltage limits.';
+lines{end+1} = 'Because very short motor-off periods may pass the constraints even at low buoyancy ratios, the analysis reports separate validity ranges for short-break pulsing, moderate duty cycling, and strong duty cycling.';
+lines{end+1} = 'The lower validity limit is interpreted as the lowest buoyancy ratio where the selected duty-cycle definition can still satisfy physical constraints. The upper validity limit is interpreted as the highest buoyancy ratio where duty cycling still reduces total average power compared with continuous low-thrust hover.';
+lines{end+1} = '';
+moderateRows = summaryTable(summaryTable.feasible_moderate_duty, :);
+if isempty(moderateRows)
+    moderateRangeText = 'No valid moderate duty-cycle range was found in this run.';
+else
+    moderateRangeText = sprintf('Under this definition, the valid BR range was BR = %.3f to BR = %.3f.', ...
+        min(moderateRows.buoyancy_ratio), max(moderateRows.buoyancy_ratio));
+end
+lines{end+1} = '## Main result interpretation';
+lines{end+1} = ['The main result of the duty-cycle analysis is the buoyancy-ratio window where duty-cycled thrust is both physically valid and more power-efficient than continuous thrust. ' ...
+    'The moderate duty-cycle definition requires off_fraction >= 0.25 and T_off >= 0.30 s. ' moderateRangeText];
+lines{end+1} = ['Below the lower limit, duty-cycled thrust may theoretically reduce power, but the required recovery behaviour fails physical constraints, especially altitude tolerance and burst thrust/current limits. ' ...
+    'Above the upper limit, the vehicle is sufficiently buoyant that continuous low-thrust operation is already very efficient, so duty cycling no longer reduces total average power.'];
+lines{end+1} = '';
+lines{end+1} = '## Relative saving versus absolute minimum power';
+lines{end+1} = ['The maximum percentage power reduction is not necessarily the same as the lowest absolute power consumption. ' ...
+    'Percentage saving compares duty-cycled thrust against continuous thrust at the same buoyancy ratio. ' ...
+    'Absolute power compares the total power required across all buoyancy ratios and control strategies. ' ...
+    'Therefore, the analysis reports both the valid duty-cycle BR range and the lowest absolute power strategy.'];
+lines{end+1} = '';
 lines{end+1} = '## Assumptions';
 lines{end+1} = '- Duty-cycle off-thrust is set by a configurable off-thrust fraction (default zero).';
 lines{end+1} = '- Startup energy is swept with low/medium/high assumed values.';

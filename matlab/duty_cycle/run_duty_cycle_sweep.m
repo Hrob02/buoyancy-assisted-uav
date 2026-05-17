@@ -38,6 +38,12 @@ voltage_pass = false(numCases, 1);
 power_reduction_pass = false(numCases, 1);
 physical_constraints_pass = false(numCases, 1);
 feasible = false(numCases, 1);
+passes_short_break_definition = false(numCases, 1);
+passes_moderate_duty_definition = false(numCases, 1);
+passes_strong_duty_definition = false(numCases, 1);
+feasible_short_break = false(numCases, 1);
+feasible_moderate_duty = false(numCases, 1);
+feasible_strong_duty = false(numCases, 1);
 failure_reason = strings(numCases, 1);
 failed_checks_list = strings(numCases, 1);
 eta_case = strings(numCases, 1);
@@ -98,6 +104,12 @@ for c = 1:height(continuousTable)
                 power_reduction_pass(idx) = result.power_reduction_pass;
                 physical_constraints_pass(idx) = result.physical_constraints_pass;
                 feasible(idx) = result.feasible;
+                passes_short_break_definition(idx) = result.passes_short_break_definition;
+                passes_moderate_duty_definition(idx) = result.passes_moderate_duty_definition;
+                passes_strong_duty_definition(idx) = result.passes_strong_duty_definition;
+                feasible_short_break(idx) = result.feasible_short_break;
+                feasible_moderate_duty(idx) = result.feasible_moderate_duty;
+                feasible_strong_duty(idx) = result.feasible_strong_duty;
                 failure_reason(idx) = result.failure_reason;
                 failed_checks_list(idx) = result.failed_checks_list;
                 eta_case(idx) = result.eta_case;
@@ -123,7 +135,10 @@ summaryTable = table( ...
     derived_endurance_improvement_percent, altitude_drop_m, altitude_tolerance_m, altitude_margin_m, ...
     F_on_required_N, P_on_required_W, I_on_required_A, ...
     altitude_pass, battery_power_pass, battery_current_pass, thrust_pass, voltage_pass, ...
-    power_reduction_pass, physical_constraints_pass, feasible, failure_reason, failed_checks_list, eta_case, eta_total, ...
+    power_reduction_pass, physical_constraints_pass, feasible, ...
+    passes_short_break_definition, passes_moderate_duty_definition, passes_strong_duty_definition, ...
+    feasible_short_break, feasible_moderate_duty, feasible_strong_duty, ...
+    failure_reason, failed_checks_list, eta_case, eta_total, ...
     sweep_mode, is_idealized_neutral_reference, infeasible_average_power, ...
     infeasible_altitude_tolerance, infeasible_battery_limit, infeasible_thrust_capability, ...
     primary_failure_reason, failed_check_count);

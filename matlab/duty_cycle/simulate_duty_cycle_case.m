@@ -5,6 +5,16 @@ T_cycle_s = T_on_s + T_off_s;
 on_fraction = T_on_s / max(T_cycle_s, eps);
 off_fraction = T_off_s / max(T_cycle_s, eps);
 
+passes_short_break_definition = ...
+    (off_fraction >= cfg.thresholds.short_break_min_off_fraction) && ...
+    (T_off_s >= cfg.thresholds.short_break_min_T_off_s);
+passes_moderate_duty_definition = ...
+    (off_fraction >= cfg.thresholds.moderate_min_off_fraction) && ...
+    (T_off_s >= cfg.thresholds.moderate_min_T_off_s);
+passes_strong_duty_definition = ...
+    (off_fraction >= cfg.thresholds.strong_min_off_fraction) && ...
+    (T_off_s >= cfg.thresholds.strong_min_T_off_s);
+
 if off_fraction < 0.25
     duty_cycle_type = "short_break_pulsing";
 elseif off_fraction < 0.50
@@ -96,6 +106,9 @@ power_reduction_pass = P_duty_total_W < continuousCase.P_cont_total_W;
 
 physical_constraints_pass = altitude_pass && battery_power_pass && battery_current_pass && thrust_pass && voltage_pass;
 isFeasible = physical_constraints_pass && power_reduction_pass;
+feasible_short_break = isFeasible && passes_short_break_definition;
+feasible_moderate_duty = isFeasible && passes_moderate_duty_definition;
+feasible_strong_duty = isFeasible && passes_strong_duty_definition;
 
 infeasible_average_power = ~power_reduction_pass;
 infeasible_altitude_tolerance = ~altitude_pass;
@@ -193,6 +206,12 @@ caseResult.voltage_pass = voltage_pass;
 caseResult.power_reduction_pass = power_reduction_pass;
 caseResult.physical_constraints_pass = physical_constraints_pass;
 caseResult.feasible = isFeasible;
+caseResult.passes_short_break_definition = passes_short_break_definition;
+caseResult.passes_moderate_duty_definition = passes_moderate_duty_definition;
+caseResult.passes_strong_duty_definition = passes_strong_duty_definition;
+caseResult.feasible_short_break = feasible_short_break;
+caseResult.feasible_moderate_duty = feasible_moderate_duty;
+caseResult.feasible_strong_duty = feasible_strong_duty;
 caseResult.failure_reason = string(failureReason);
 caseResult.failed_checks_list = string(failedChecksList);
 caseResult.eta_case = continuousCase.eta_case;

@@ -37,6 +37,16 @@ cfg.sweep.include_ideal_neutral_reference = true;
 cfg.sweep.include_ideal_reference_in_threshold = false;
 
 cfg.minimum_off_fraction_for_primary_results = 0.0;
+
+% Duty-cycle threshold definitions used for validity-range categorization.
+cfg.thresholds.short_break_min_off_fraction = 0.00;
+cfg.thresholds.moderate_min_off_fraction = 0.25;
+cfg.thresholds.strong_min_off_fraction = 0.50;
+
+cfg.thresholds.short_break_min_T_off_s = 0.00;
+cfg.thresholds.moderate_min_T_off_s = 0.30;
+cfg.thresholds.strong_min_T_off_s = 0.50;
+
 cfg.sweep.startup_energy_cases = struct( ...
     'name', {'low', 'medium', 'high'}, ...
     'value_J', {0.01, 0.05, 0.10}, ...
@@ -49,6 +59,9 @@ cfg.sweep.efficiency_cases = struct( ...
 cfg.sim.altitude_tolerance_m = 0.25;
 cfg.sim.off_thrust_fraction = 0.0;
 cfg.sim.electronics_idle_power_W = 0.35;
+
+cfg.output.write_debug_tables = false;
+cfg.output.write_debug_figures = false;
 
 % Optional payload sweep can be introduced later; this run uses max payload.
 cfg.sim.payload_kg = cfg.vehicle.max_payload_kg;
