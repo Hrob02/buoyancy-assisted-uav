@@ -26,16 +26,19 @@ for index = 1:shapeCount
     rows(index).length_m = dimensions.length_m;
     rows(index).width_m = dimensions.width_m;
     rows(index).height_m = dimensions.height_m;
+    rows(index).max_dimension_m = projectedAreas.max_dimension_m;
+    rows(index).bounding_box_volume_m3 = dimensions.length_m * dimensions.width_m * dimensions.height_m;
     rows(index).surface_area_m2 = surfaceArea_m2;
     rows(index).surface_area_to_volume_1_m = surfaceArea_m2 / requiredVolume_m3;
     rows(index).estimated_envelope_material_mass_kg = estimatedEnvelopeMaterialMass_kg;
     rows(index).estimated_net_lift_after_envelope_mass_g = estimatedNetLiftAfterEnvelopeMass_g;
+    rows(index).projected_area_xy_m2 = projectedAreas.area_xy_m2;
+    rows(index).projected_area_xz_m2 = projectedAreas.area_xz_m2;
+    rows(index).projected_area_yz_m2 = projectedAreas.area_yz_m2;
+    rows(index).drag_coefficient_x = shape.cd_xyz(1);
+    rows(index).drag_coefficient_y = shape.cd_xyz(2);
+    rows(index).drag_coefficient_z = shape.cd_xyz(3);
     rows(index).disturbance_stability_index = disturbance.disturbance_stability_index;
-    rows(index).spatial_footprint_m2 = projectedAreas.spatial_footprint_m2;
-    rows(index).max_dimension_m = projectedAreas.max_dimension_m;
-    rows(index).manufacturability_score = shape.manufacturability_score;
-    rows(index).availability_score = shape.availability_score;
-    rows(index).practical_score_source = string(shape.practical_score_source);
     rows(index).meets_required_volume = true;
     rows(index).meets_size_limit = evaluate_size_limit(cfg, dimensions);
     rows(index).estimated_net_lift_after_envelope_mass_N_internal = estimatedNetLiftAfterEnvelopeMass_N;
@@ -45,24 +48,19 @@ decisionMatrix = struct2table(rows);
 
 decisionMatrix.normalised_material_efficiency = min_max_normalise(decisionMatrix.surface_area_to_volume_1_m);
 decisionMatrix.normalised_disturbance = min_max_normalise(decisionMatrix.disturbance_stability_index);
+decisionMatrix.normalised_size_constraint = min_max_normalise(decisionMatrix.max_dimension_m);
 
-normalisedFootprint = min_max_normalise(decisionMatrix.spatial_footprint_m2);
-normalisedMaxDimension = min_max_normalise(decisionMatrix.max_dimension_m);
-decisionMatrix.normalised_spatial_compactness = mean([normalisedFootprint, normalisedMaxDimension], 2);
-
-normalisedManufacturability = min_max_normalise(decisionMatrix.manufacturability_score);
-normalisedAvailability = min_max_normalise(decisionMatrix.availability_score);
-decisionMatrix.normalised_practicality = mean([normalisedManufacturability, normalisedAvailability], 2);
+decisionMatrix.weighted_material_contribution = ...
+    cfg.weights.material_efficiency * decisionMatrix.normalised_material_efficiency;
+decisionMatrix.weighted_disturbance_contribution = ...
+    cfg.weights.disturbance_response * decisionMatrix.normalised_disturbance;
+decisionMatrix.weighted_size_contribution = ...
+    cfg.weights.size_constraint * decisionMatrix.normalised_size_constraint;
 
 decisionMatrix.weighted_total_score = ...
-    cfg.weights.material_efficiency * decisionMatrix.normalised_material_efficiency + ...
-    cfg.weights.disturbance_response * decisionMatrix.normalised_disturbance + ...
-    cfg.weights.spatial_compactness * decisionMatrix.normalised_spatial_compactness + ...
-    cfg.weights.practicality * decisionMatrix.normalised_practicality;
-
-decisionMatrix.practicality_acceptability_internal = ...
-    max([decisionMatrix.manufacturability_score, decisionMatrix.availability_score], [], 2) <= ...
-    cfg.practicality.acceptable_score_max;
+    decisionMatrix.weighted_material_contribution + ...
+    decisionMatrix.weighted_disturbance_contribution + ...
+    decisionMatrix.weighted_size_contribution;
 
 [~, order] = sort(decisionMatrix.weighted_total_score, 'ascend');
 rank = zeros(height(decisionMatrix), 1);

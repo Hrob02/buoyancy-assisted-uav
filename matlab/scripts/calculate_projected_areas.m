@@ -1,5 +1,5 @@
 function projectedAreas = calculate_projected_areas(shape, dimensions)
-%CALCULATE_PROJECTED_AREAS Compute principal projected areas and compactness terms.
+%CALCULATE_PROJECTED_AREAS Compute principal projected areas and size-envelope terms.
 
 L = dimensions.length_m;
 W = dimensions.width_m;
@@ -23,7 +23,6 @@ switch lower(shape.type)
         error('EnvelopeGeometry:UnknownShapeType', 'Unsupported shape type: %s', shape.type);
 end
 
-projectedAreas.spatial_footprint_m2 = L * W;
 projectedAreas.max_dimension_m = max([L, W, H]);
 
 end

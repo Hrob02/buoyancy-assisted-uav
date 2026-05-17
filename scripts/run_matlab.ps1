@@ -31,7 +31,7 @@ Write-Host "[run_matlab] Using MATLAB executable: $matlabExe"
 Push-Location $RepoRoot
 try {
     Write-Host "[run_matlab] Launching envelope geometry design-screening analysis..."
-    & $matlabExe -nosplash -r "try, cd('matlab/scripts'); run_envelope_geometry_analysis; catch ME, disp(getReport(ME)); exit(1); end; exit(0);"
+    & $matlabExe -batch "cd('matlab/scripts'); run_envelope_geometry_analysis"
     $exitCode = $LASTEXITCODE
     if ($exitCode -ne 0) {
         throw "MATLAB exited with code $exitCode."

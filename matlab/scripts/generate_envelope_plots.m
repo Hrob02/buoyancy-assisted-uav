@@ -38,10 +38,10 @@ title('Disturbance Response');
 grid on;
 
 nexttile;
-bar(sortedTable.spatial_footprint_m2, 'FaceColor', [0.49 0.18 0.56]);
+bar(sortedTable.max_dimension_m, 'FaceColor', [0.49 0.18 0.56]);
 set(gca, 'XTick', 1:height(sortedTable), 'XTickLabel', shapeLabels);
-ylabel('Spatial footprint [m^2]');
-title('Spatial Compactness');
+ylabel('Maximum dimension [m]');
+title('Size Constraint Metric');
 grid on;
 
 sgtitle('Envelope Geometry Design-Screening Metrics');
@@ -79,7 +79,7 @@ function create_pareto_plot(cfg, decisionMatrix, paretoTable)
 figureHandle = figure('Color', 'w', 'Visible', 'off', 'Position', [100 100 1000 650]);
 hold on;
 
-markerArea = 4000 * (decisionMatrix.spatial_footprint_m2 ./ max(decisionMatrix.spatial_footprint_m2));
+markerArea = 4000 * (decisionMatrix.max_dimension_m ./ max(decisionMatrix.max_dimension_m));
 isDominated = paretoTable.is_pareto_dominated;
 
 scatter(decisionMatrix.surface_area_to_volume_1_m(~isDominated), ...
