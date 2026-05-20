@@ -20,7 +20,7 @@ cfg.battery.usable_energy_fraction = 0.90;
 
 cfg.environment.gravity_m_s2 = 9.81;
 cfg.environment.rho_air_kg_m3 = 1.225;
-cfg.environment.rho_helium_kg_m3 = 0.1786;
+cfg.environment.rho_helium_kg_m3 = 0.164;
 
 cfg.rotor.prop_diameter_m = 0.047;
 cfg.rotor.number_of_rotors = 4;
