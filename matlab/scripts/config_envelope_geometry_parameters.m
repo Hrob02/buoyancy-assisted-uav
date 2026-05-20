@@ -30,8 +30,7 @@ cfg.sensitivity.mass_g = 25:5:60;
 cfg.sensitivity.buoyancy_ratio = 0.70:0.05:1.00;
 cfg.sensitivity.surface_density_kg_m2 = [0.03, 0.05, 0.08];
 
-cfg.statistics.enable_supplementary_anova = true;
-cfg.statistics.anova_alpha = 0.05;
+
 
 cfg.output.write_debug_tables = false;
 cfg.output.write_debug_figures = false;

@@ -12,12 +12,12 @@ fileId = fopen(filePath, 'w');
 assert(fileId ~= -1, 'EnvelopeGeometry:FileOpenFailed', 'Unable to open assumptions markdown for writing.');
 cleaner = onCleanup(@() fclose(fileId)); %#ok<NASGU>
 
-fprintf(fileId, '# Envelope Geometry Assumptions\n\n');
-fprintf(fileId, '## Analysis framing\n\n');
-fprintf(fileId, 'This analysis is a deterministic engineering design-screening study for helium-assisted UAV envelope selection. Equal required buoyant lift is enforced by first computing the helium volume required from system mass and target buoyancy ratio, then comparing candidate shapes at that same required helium volume.\n\n');
-fprintf(fileId, 'Candidate envelope geometries were compared using separate geometry-derived metrics rather than combining them into a single weighted score. This avoided introducing an additional weighting assumption into the selection process. The primary comparison metrics were surface-area-to-volume ratio, disturbance stability index, and maximum envelope dimension. These were assessed individually using engineering-significance thresholds, Pareto dominance analysis, and sensitivity robustness across the tested parameter space.\n\n');
-fprintf(fileId, 'The final recommendation was not selected by a weighted optimisation score. It was based on whether the shape was non-dominated, ranked best or near-best across the supported metrics, and remained robust across the sensitivity analysis.\n\n');
-fprintf(fileId, 'ANOVA is included as a screening tool only. The primary decision is based on engineering significance because the simulation outputs are deterministic model results, not repeated physical measurements.\n\n');
+
+    fprintf(fileId, '# Envelope Geometry Assumptions\n\n');
+    fprintf(fileId, '## Analysis framing\n\n');
+    fprintf(fileId, 'This analysis is a deterministic engineering design-screening study for helium-assisted UAV envelope selection. Equal required buoyant lift is enforced by first computing the helium volume required from system mass and target buoyancy ratio, then comparing candidate shapes at that same required helium volume.\n\n');
+    fprintf(fileId, 'The envelope geometry analysis was treated as a deterministic engineering design-screening study. Candidate shapes were compared directly using geometry-derived metrics: surface-area-to-volume ratio, disturbance stability index, and maximum dimension. Differences between shapes were interpreted using engineering-significance thresholds rather than statistical hypothesis testing.\n\n');
+    fprintf(fileId, 'The final recommendation was not selected by a weighted optimisation score. It was based on whether the shape was non-dominated, ranked best or near-best across the supported metrics, and remained robust across the sensitivity analysis.\n\n');
 
 fprintf(fileId, '## Exclusion of unsupported practicality scoring\n\n');
 fprintf(fileId, 'Manufacturability, availability, and mounting practicality were not included in the quantitative decision process because no specific manufacturing process, procurement pathway, or mounting mechanism was modelled. Including these factors numerically would introduce unsupported assumptions. Practical implementation considerations may still be discussed qualitatively but are not used to select the final shape.\n\n');
@@ -43,8 +43,7 @@ fprintf(fileId, '- disturbance_stability_index: primary disturbance metric\n');
 fprintf(fileId, '- max_dimension_m: size-envelope metric\n');
 fprintf(fileId, '- projected_area_xy_m2, projected_area_xz_m2, projected_area_yz_m2: transparency metrics used by disturbance calculations\n\n');
 
-fprintf(fileId, '## Supplementary statistical note\n\n');
-fprintf(fileId, '%s\n', analysis.supplementary_anova_note);
+
 end
 
 function write_recommendation_markdown(cfg, analysis)
@@ -58,10 +57,10 @@ selectedShapeChar = char(analysis.selected_shape);
 
 fprintf(fileId, '# Envelope Shape Recommendation\n\n');
 fprintf(fileId, '## Purpose of the analysis\n\n');
-fprintf(fileId, 'This analysis screens helium envelope geometries for a small UAV by comparing candidate shapes at equal required buoyant lift. The comparison is deterministic and intended to support engineering design selection, not to make statistical claims from repeated physical measurements.\n\n');
 
-fprintf(fileId, '## Comparison method\n\n');
-fprintf(fileId, 'Candidate envelope geometries were compared using separate geometry-derived metrics rather than combining them into a single weighted score. This avoided introducing an additional weighting assumption into the selection process. The primary comparison metrics were surface-area-to-volume ratio, disturbance stability index, and maximum envelope dimension. These were assessed individually using engineering-significance thresholds, Pareto dominance analysis, and sensitivity robustness across the tested parameter space.\n\n');
+    fprintf(fileId, 'This analysis screens helium envelope geometries for a small UAV by comparing candidate shapes at equal required buoyant lift. The comparison is deterministic and intended to support engineering design selection, not to make statistical claims from repeated physical measurements.\n\n');
+    fprintf(fileId, '## Comparison method\n\n');
+    fprintf(fileId, 'The envelope geometry analysis was treated as a deterministic engineering design-screening study. Candidate shapes were compared directly using geometry-derived metrics: surface-area-to-volume ratio, disturbance stability index, and maximum dimension. Differences between shapes were interpreted using engineering-significance thresholds rather than statistical hypothesis testing.\n\n');
 
 fprintf(fileId, '## Parameters used\n\n');
 fprintf(fileId, '- Reference system mass: %.1f g\n', cfg.system.reference_mass_g);

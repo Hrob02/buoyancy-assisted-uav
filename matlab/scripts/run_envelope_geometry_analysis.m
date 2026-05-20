@@ -18,16 +18,13 @@ paretoTable = generate_pareto_analysis(decisionMatrix);
 [selectedShape, nextBestShape, decisionMatrix] = determine_selected_shape(cfg, decisionMatrix);
 engineeringSignificanceSummary = calculate_engineering_significance(cfg, decisionMatrix, selectedShape, nextBestShape);
 
+
 [sensitivityResults, rankingRobustness] = run_envelope_sensitivity_analysis(cfg);
 selectedRobustness = rankingRobustness(rankingRobustness.shape == string(selectedShape), :);
-supplementaryAnova = run_supplementary_anova(cfg, sensitivityResults);
-
 modelNotStronglyDistinguished = model_not_strongly_distinguished(engineeringSignificanceSummary, selectedShape, nextBestShape);
 decisionMatrix = update_recommendation_notes(decisionMatrix, paretoTable, selectedShape, modelNotStronglyDistinguished);
-
 write_core_outputs(cfg, decisionMatrix, engineeringSignificanceSummary, sensitivityResults, rankingRobustness, paretoTable);
 generate_envelope_plots(cfg, decisionMatrix, rankingRobustness, paretoTable);
-
 analysis.decision_matrix = decisionMatrix;
 analysis.selected_shape = string(selectedShape);
 analysis.next_best_shape = string(nextBestShape);
@@ -35,9 +32,7 @@ analysis.engineering_significance_summary = engineeringSignificanceSummary;
 analysis.selected_shape_non_pareto_percent = selectedRobustness.percentage_non_pareto_dominated;
 analysis.selected_shape_robustness_note = selectedRobustness.robustness_note{1};
 analysis.pareto_result_text = pareto_result_text(paretoTable, selectedShape);
-analysis.supplementary_anova_note = supplementaryAnova.note;
 analysis.analysis_meta = analysisMeta;
-
 write_envelope_recommendation_md(cfg, analysis);
 print_console_summary(decisionMatrix, paretoTable, rankingRobustness, engineeringSignificanceSummary, selectedShape, nextBestShape);
 fprintf('Results written to: %s\n', cfg.paths.results_dir);
@@ -62,9 +57,7 @@ resultFiles = { ...
     'envelope_ranking_robustness.csv', ...
     'envelope_pareto_analysis.csv', ...
     'envelope_shape_recommendation.md', ...
-    'envelope_geometry_assumptions.md', ...
-    'envelope_supplementary_anova_summary.csv', ...
-    'envelope_supplementary_pairwise_comparisons.csv'};
+    'envelope_geometry_assumptions.md'};
 
 figureFiles = { ...
     'envelope_metric_comparison.png', ...
@@ -237,56 +230,6 @@ for rowIndex = 1:height(updatedDecisionMatrix)
 end
 end
 
-function supplementaryAnova = run_supplementary_anova(cfg, sensitivityResults)
-supplementaryAnova.note = "ANOVA is included as a screening tool only. The primary decision is based on engineering significance because the simulation outputs are deterministic model results, not repeated physical measurements.";
-supplementaryAnova.summaryTable = table();
-supplementaryAnova.pairwiseTable = table();
-
-if ~cfg.statistics.enable_supplementary_anova
-    return;
-end
-
-if ~(exist('anova1', 'file') == 2 && exist('multcompare', 'file') == 2)
-    supplementaryAnova.note = sprintf('%s Statistics and Machine Learning Toolbox functions were not available, so supplementary ANOVA tables were not generated.', supplementaryAnova.note);
-    return;
-end
-
-metricFields = { ...
-    'surface_area_to_volume_1_m', ...
-    'disturbance_stability_index', ...
-    'max_dimension_m'};
-
-summaryRows = {};
-pairwiseRows = {};
-for metricIndex = 1:numel(metricFields)
-    metricField = metricFields{metricIndex};
-    metricValues = sensitivityResults.(metricField);
-    groupLabels = cellstr(sensitivityResults.shape);
-
-    [pValue, ~, stats] = anova1(metricValues, groupLabels, 'off');
-    summaryRows(end + 1, :) = {metricField, pValue, pValue < cfg.statistics.anova_alpha}; %#ok<AGROW>
-
-    comparisonTable = multcompare(stats, 'Display', 'off');
-    for rowIndex = 1:size(comparisonTable, 1)
-        pairwiseRows(end + 1, :) = { ...
-            metricField, ...
-            stats.gnames{comparisonTable(rowIndex, 1)}, ...
-            stats.gnames{comparisonTable(rowIndex, 2)}, ...
-            comparisonTable(rowIndex, 4), ...
-            comparisonTable(rowIndex, 6), ...
-            comparisonTable(rowIndex, 6) < cfg.statistics.anova_alpha}; %#ok<AGROW>
-    end
-end
-
-supplementaryAnova.summaryTable = cell2table(summaryRows, 'VariableNames', {'metric', 'anova_p_value', 'anova_significant'});
-supplementaryAnova.pairwiseTable = cell2table(pairwiseRows, 'VariableNames', { ...
-    'metric', 'shape_a', 'shape_b', 'mean_difference', 'p_value', 'significant_at_alpha'});
-
-if cfg.output.write_debug_tables
-    writetable(supplementaryAnova.summaryTable, fullfile(cfg.paths.results_dir, 'envelope_supplementary_anova_summary.csv'));
-    writetable(supplementaryAnova.pairwiseTable, fullfile(cfg.paths.results_dir, 'envelope_supplementary_pairwise_comparisons.csv'));
-end
-end
 
 function write_core_outputs(cfg, decisionMatrix, engineeringSignificanceSummary, sensitivityResults, rankingRobustness, paretoTable)
 decisionOutput = removevars(decisionMatrix, {'meets_required_volume', 'meets_size_limit', ...
@@ -322,11 +265,11 @@ assert(isempty(missingColumns) && isempty(unexpectedColumns), ...
     strjoin(missingColumns, ', '), strjoin(unexpectedColumns, ', '));
 decisionOutput = decisionOutput(:, requiredColumnOrder);
 
-writetable(decisionOutput, fullfile(cfg.paths.results_dir, 'envelope_decision_matrix.csv'));
-writetable(engineeringSignificanceSummary, fullfile(cfg.paths.results_dir, 'envelope_engineering_significance_summary.csv'));
-writetable(sensitivityResults, fullfile(cfg.paths.results_dir, 'envelope_sensitivity_results.csv'));
-writetable(rankingRobustness, fullfile(cfg.paths.results_dir, 'envelope_ranking_robustness.csv'));
-writetable(paretoTable, fullfile(cfg.paths.results_dir, 'envelope_pareto_analysis.csv'));
+    writetable(decisionOutput, fullfile(cfg.paths.results_dir, 'envelope_decision_matrix.csv'));
+    writetable(engineeringSignificanceSummary, fullfile(cfg.paths.results_dir, 'envelope_engineering_significance_summary.csv'));
+    writetable(sensitivityResults, fullfile(cfg.paths.results_dir, 'envelope_sensitivity_results.csv'));
+    writetable(rankingRobustness, fullfile(cfg.paths.results_dir, 'envelope_ranking_robustness.csv'));
+    writetable(paretoTable, fullfile(cfg.paths.results_dir, 'envelope_pareto_analysis.csv'));
 end
 
 function print_console_summary(decisionMatrix, paretoTable, rankingRobustness, engineeringSignificanceSummary, selectedShape, nextBestShape)
@@ -372,7 +315,7 @@ else
         lower(selectedShapeChar));
 end
 
-fprintf('\nSupplementary context: ANOVA is included as a screening tool only. The primary decision is based on engineering significance because the simulation outputs are deterministic model results, not repeated physical measurements.\n');
+fprintf('\nComparisons are based on deterministic, geometry-derived metrics and engineering-significance thresholds.\n');
 end
 
 function print_metric_comparison_block(metricRows, comparisonLabel)
