@@ -7,7 +7,6 @@ close all;
 cfg = config_envelope_geometry_parameters();
 ensure_output_directories(cfg);
 clean_output_directories(cfg);
-validate_weight_sum(cfg);
 
 fprintf('=== Envelope Geometry Design-Screening Analysis ===\n');
 
@@ -16,12 +15,15 @@ fprintf('=== Envelope Geometry Design-Screening Analysis ===\n');
 validate_baseline_results(decisionMatrix, cfg);
 
 paretoTable = generate_pareto_analysis(decisionMatrix);
-[selectedShape, nextBestShape, decisionMatrix] = determine_selected_shape(cfg, decisionMatrix, paretoTable);
+[selectedShape, nextBestShape, decisionMatrix] = determine_selected_shape(cfg, decisionMatrix);
 engineeringSignificanceSummary = calculate_engineering_significance(cfg, decisionMatrix, selectedShape, nextBestShape);
 
 [sensitivityResults, rankingRobustness] = run_envelope_sensitivity_analysis(cfg);
 selectedRobustness = rankingRobustness(rankingRobustness.shape == string(selectedShape), :);
 supplementaryAnova = run_supplementary_anova(cfg, sensitivityResults);
+
+modelNotStronglyDistinguished = model_not_strongly_distinguished(engineeringSignificanceSummary, selectedShape, nextBestShape);
+decisionMatrix = update_recommendation_notes(decisionMatrix, paretoTable, selectedShape, modelNotStronglyDistinguished);
 
 write_core_outputs(cfg, decisionMatrix, engineeringSignificanceSummary, sensitivityResults, rankingRobustness, paretoTable);
 generate_envelope_plots(cfg, decisionMatrix, rankingRobustness, paretoTable);
@@ -30,14 +32,14 @@ analysis.decision_matrix = decisionMatrix;
 analysis.selected_shape = string(selectedShape);
 analysis.next_best_shape = string(nextBestShape);
 analysis.engineering_significance_summary = engineeringSignificanceSummary;
-analysis.selected_shape_rank_first_percent = selectedRobustness.percentage_of_sweep_cases_ranked_first;
-analysis.selected_shape_average_rank = selectedRobustness.average_rank;
+analysis.selected_shape_non_pareto_percent = selectedRobustness.percentage_non_pareto_dominated;
+analysis.selected_shape_robustness_note = selectedRobustness.robustness_note{1};
 analysis.pareto_result_text = pareto_result_text(paretoTable, selectedShape);
 analysis.supplementary_anova_note = supplementaryAnova.note;
 analysis.analysis_meta = analysisMeta;
 
 write_envelope_recommendation_md(cfg, analysis);
-print_console_summary(decisionMatrix, paretoTable, rankingRobustness, engineeringSignificanceSummary, selectedShape);
+print_console_summary(decisionMatrix, paretoTable, rankingRobustness, engineeringSignificanceSummary, selectedShape, nextBestShape);
 fprintf('Results written to: %s\n', cfg.paths.results_dir);
 fprintf('Figures written to: %s\n', cfg.paths.figures_dir);
 
@@ -66,10 +68,11 @@ resultFiles = { ...
 
 figureFiles = { ...
     'envelope_metric_comparison.png', ...
-    'envelope_decision_score.png', ...
+    'envelope_sensitivity_metric_ranking.png', ...
     'envelope_sensitivity_ranking.png', ...
     'envelope_pareto_plot.png', ...
-    'envelope_geometry_dimensions.png'};
+    'envelope_geometry_dimensions.png', ...
+    'envelope_decision_score.png'};
 
 for fileIndex = 1:numel(resultFiles)
     safe_delete_file(fullfile(cfg.paths.results_dir, resultFiles{fileIndex}));
@@ -77,14 +80,6 @@ end
 for fileIndex = 1:numel(figureFiles)
     safe_delete_file(fullfile(cfg.paths.figures_dir, figureFiles{fileIndex}));
 end
-end
-
-function validate_weight_sum(cfg)
-weightSum = cfg.weights.material_efficiency + cfg.weights.disturbance_response + ...
-    cfg.weights.size_constraint;
-assert(abs(weightSum - 1.0) <= cfg.weights.sum_tolerance, ...
-    'EnvelopeGeometry:WeightSum', ...
-    'Decision weights must sum to 1.0 within tolerance.');
 end
 
 function validate_baseline_results(decisionMatrix, cfg)
@@ -103,12 +98,9 @@ assert(all(decisionMatrix.surface_area_m2 > 0), ...
 assert(all(decisionMatrix.surface_area_to_volume_1_m > 0), ...
     'EnvelopeGeometry:InvalidSAV', ...
     'All surface-area-to-volume ratios must be positive.');
-assert(all(decisionMatrix.estimated_envelope_material_mass_kg >= 0), ...
-    'EnvelopeGeometry:InvalidEnvelopeMass', ...
-    'Estimated envelope material mass must be non-negative.');
-assert(all(isfinite(decisionMatrix.estimated_net_lift_after_envelope_mass_g)), ...
-    'EnvelopeGeometry:InvalidNetLift', ...
-    'Estimated net lift after envelope mass must be finite.');
+assert(all(isfinite(decisionMatrix.disturbance_stability_index)), ...
+    'EnvelopeGeometry:InvalidDisturbanceIndex', ...
+    'Disturbance stability index must be finite for all candidate shapes.');
 assert(height(decisionMatrix) == numel(cfg.shapes), ...
     'EnvelopeGeometry:IncompleteRanking', ...
     'Ranking table must include every candidate shape.');
@@ -143,7 +135,7 @@ for rowIndex = 1:shapeCount
 
     if dominated(rowIndex)
         dominatedBy(rowIndex) = strjoin(cellstr(dominatingShapes), '; ');
-        paretoNote(rowIndex) = "Dominated by a shape that is equal or better across all selected Pareto metrics.";
+        paretoNote(rowIndex) = "Pareto-dominated: another shape is equal or better across SA/V, disturbance index, and maximum dimension, and strictly better in at least one.";
     else
         dominatedBy(rowIndex) = "";
         paretoNote(rowIndex) = "Not Pareto-dominated under SA/V, disturbance index, and maximum dimension.";
@@ -154,56 +146,95 @@ paretoTable = table(decisionMatrix.shape, dominated, dominatedBy, paretoNote, ..
     'VariableNames', {'shape', 'is_pareto_dominated', 'dominated_by', 'pareto_note'});
 end
 
-function [selectedShape, nextBestShape, updatedDecisionMatrix] = determine_selected_shape(cfg, decisionMatrix, paretoTable)
+function [selectedShape, nextBestShape, updatedDecisionMatrix] = determine_selected_shape(cfg, decisionMatrix)
 updatedDecisionMatrix = decisionMatrix;
-updatedDecisionMatrix.is_pareto_dominated_internal = paretoTable.is_pareto_dominated;
 
-eligibleMask = updatedDecisionMatrix.meets_required_volume & updatedDecisionMatrix.meets_size_limit & ...
-    ~updatedDecisionMatrix.is_pareto_dominated_internal;
+validMask = updatedDecisionMatrix.length_m > 0 & updatedDecisionMatrix.width_m > 0 & ...
+    updatedDecisionMatrix.height_m > 0 & updatedDecisionMatrix.surface_area_m2 > 0 & ...
+    updatedDecisionMatrix.surface_area_to_volume_1_m > 0 & isfinite(updatedDecisionMatrix.disturbance_stability_index);
+eligibleMask = validMask & updatedDecisionMatrix.meets_size_limit;
 
 if ~any(eligibleMask)
-    eligibleMask = updatedDecisionMatrix.meets_required_volume & updatedDecisionMatrix.meets_size_limit;
-end
-if ~any(eligibleMask)
-    eligibleMask = true(height(updatedDecisionMatrix), 1);
+    error('EnvelopeGeometry:NoEligibleShapes', ...
+        'No shapes satisfy validity and configured size-constraint checks.');
 end
 
 eligibleTable = updatedDecisionMatrix(eligibleMask, :);
-bestScore = min(eligibleTable.weighted_total_score);
-scoreMargin = bestScore * (1 + cfg.engineering_significance.score_difference_threshold_percent / 100);
-nearBestMask = eligibleMask & (updatedDecisionMatrix.weighted_total_score <= scoreMargin);
-nearBestTable = updatedDecisionMatrix(nearBestMask, :);
-
-if height(nearBestTable) > 1
-    [~, nearBestOrder] = sortrows([nearBestTable.weighted_total_score, nearBestTable.max_dimension_m], [1 2]);
-    selectedShape = nearBestTable.shape(nearBestOrder(1));
-    modelCloseCall = true;
+eligiblePareto = generate_pareto_analysis(eligibleTable);
+nonDominatedMask = ~eligiblePareto.is_pareto_dominated;
+if any(nonDominatedMask)
+    candidatePool = eligibleTable(nonDominatedMask, :);
 else
-    [~, localOrder] = sort(eligibleTable.weighted_total_score, 'ascend');
-    selectedShape = eligibleTable.shape(localOrder(1));
-    modelCloseCall = false;
+    candidatePool = eligibleTable;
 end
 
-rankedTable = sortrows(updatedDecisionMatrix, {'weighted_total_score', 'max_dimension_m'}, {'ascend', 'ascend'});
-nextBestShape = rankedTable.shape(find(rankedTable.shape ~= selectedShape, 1, 'first'));
+materialThresholdPercent = cfg.engineering_significance.material_efficiency_threshold_percent;
+disturbanceThresholdPercent = cfg.engineering_significance.disturbance_threshold_percent;
+sizeThresholdPercent = cfg.engineering_significance.size_threshold_percent;
 
+tolerance = 1.0e-12;
+bestSAV = min(candidatePool.surface_area_to_volume_1_m);
+bestDisturbance = min(candidatePool.disturbance_stability_index);
+bestMaxDimension = min(candidatePool.max_dimension_m);
+
+isBestSAV = abs(candidatePool.surface_area_to_volume_1_m - bestSAV) <= tolerance;
+isBestDisturbance = abs(candidatePool.disturbance_stability_index - bestDisturbance) <= tolerance;
+isBestDimension = abs(candidatePool.max_dimension_m - bestMaxDimension) <= tolerance;
+
+isNearBestSAV = candidatePool.surface_area_to_volume_1_m <= bestSAV * (1 + materialThresholdPercent / 100);
+isNearBestDisturbance = candidatePool.disturbance_stability_index <= bestDisturbance * (1 + disturbanceThresholdPercent / 100);
+isNearBestDimension = candidatePool.max_dimension_m <= bestMaxDimension * (1 + sizeThresholdPercent / 100);
+
+bestMetricCount = double(isBestSAV) + double(isBestDisturbance) + double(isBestDimension);
+nearBestMetricCount = double(isNearBestSAV) + double(isNearBestDisturbance) + double(isNearBestDimension);
+diagnosticAverageRank = mean([candidatePool.rank_SA_V, candidatePool.rank_disturbance, candidatePool.rank_max_dimension], 2);
+
+decisionTable = table(candidatePool.shape, bestMetricCount, nearBestMetricCount, diagnosticAverageRank, candidatePool.max_dimension_m, ...
+    'VariableNames', {'shape', 'best_metric_count', 'near_best_metric_count', 'diagnostic_average_rank', 'max_dimension_m'});
+decisionTable = sortrows(decisionTable, ...
+    {'best_metric_count', 'near_best_metric_count', 'diagnostic_average_rank', 'max_dimension_m'}, ...
+    {'descend', 'descend', 'ascend', 'ascend'});
+
+selectedShape = decisionTable.shape(1);
+if height(decisionTable) > 1
+    nextBestShape = decisionTable.shape(2);
+else
+    nextBestShape = selectedShape;
+end
+
+updatedDecisionMatrix.recommendation_note = repmat("Not selected.", height(updatedDecisionMatrix), 1);
+end
+
+function modelNotStronglyDistinguished = model_not_strongly_distinguished(engineeringSignificanceSummary, selectedShape, comparisonShape)
+comparisonRows = engineeringSignificanceSummary( ...
+    engineeringSignificanceSummary.selected_shape == string(selectedShape) & ...
+    engineeringSignificanceSummary.comparison_shape == string(comparisonShape), :);
+if isempty(comparisonRows)
+    modelNotStronglyDistinguished = false;
+    return;
+end
+
+negligibleOrMarginal = comparisonRows.engineering_significance_category == "negligible" | ...
+    comparisonRows.engineering_significance_category == "marginal";
+modelNotStronglyDistinguished = all(negligibleOrMarginal);
+end
+
+function updatedDecisionMatrix = update_recommendation_notes(decisionMatrix, paretoTable, selectedShape, modelNotStronglyDistinguished)
+updatedDecisionMatrix = decisionMatrix;
 for rowIndex = 1:height(updatedDecisionMatrix)
     rowShape = updatedDecisionMatrix.shape(rowIndex);
-    if rowShape == selectedShape
-        if modelCloseCall
-            updatedDecisionMatrix.recommendation_note(rowIndex) = "Selected: non-dominated with near-best score; model does not strongly distinguish near-best shapes, so physical validation is recommended.";
+    if rowShape == string(selectedShape)
+        if modelNotStronglyDistinguished
+            updatedDecisionMatrix.recommendation_note(rowIndex) = "Selected: non-Pareto-dominated and best/near-best across metrics; leading alternatives are close, so physical validation is recommended.";
         else
-            updatedDecisionMatrix.recommendation_note(rowIndex) = "Selected: non-dominated with the best geometry-derived weighted score.";
+            updatedDecisionMatrix.recommendation_note(rowIndex) = "Selected: non-Pareto-dominated and best/near-best across SA/V, disturbance, and maximum dimension.";
         end
     elseif paretoTable.is_pareto_dominated(rowIndex)
-        updatedDecisionMatrix.recommendation_note(rowIndex) = "Not preferred: Pareto-dominated under the selected screening metrics.";
-    elseif updatedDecisionMatrix.weighted_total_score(rowIndex) <= scoreMargin
-        updatedDecisionMatrix.recommendation_note(rowIndex) = "Competitive: near-best score; model does not strongly distinguish this option from the selected shape.";
+        updatedDecisionMatrix.recommendation_note(rowIndex) = "Not preferred: Pareto-dominated under SA/V, disturbance index, and maximum dimension.";
     else
-        updatedDecisionMatrix.recommendation_note(rowIndex) = "Not selected: lower overall design-screening balance than the leading candidate.";
+        updatedDecisionMatrix.recommendation_note(rowIndex) = "Competitive: non-Pareto-dominated but not selected after metric-by-metric comparison.";
     end
 end
-
 end
 
 function supplementaryAnova = run_supplementary_anova(cfg, sensitivityResults)
@@ -222,10 +253,8 @@ end
 
 metricFields = { ...
     'surface_area_to_volume_1_m', ...
-    'estimated_envelope_material_mass_kg', ...
-    'estimated_net_lift_after_envelope_mass_g', ...
     'disturbance_stability_index', ...
-    'weighted_total_score'};
+    'max_dimension_m'};
 
 summaryRows = {};
 pairwiseRows = {};
@@ -261,7 +290,8 @@ end
 
 function write_core_outputs(cfg, decisionMatrix, engineeringSignificanceSummary, sensitivityResults, rankingRobustness, paretoTable)
 decisionOutput = removevars(decisionMatrix, {'meets_required_volume', 'meets_size_limit', ...
-    'estimated_net_lift_after_envelope_mass_N_internal', 'is_pareto_dominated_internal'});
+    'estimated_net_lift_after_envelope_mass_N_internal', 'estimated_envelope_material_mass_kg', ...
+    'estimated_net_lift_after_envelope_mass_g', 'bounding_box_volume_m3', 'recommendation_note'});
 
 requiredColumnOrder = { ...
     'shape', ...
@@ -269,12 +299,8 @@ requiredColumnOrder = { ...
     'length_m', ...
     'width_m', ...
     'height_m', ...
-    'max_dimension_m', ...
-    'bounding_box_volume_m3', ...
     'surface_area_m2', ...
     'surface_area_to_volume_1_m', ...
-    'estimated_envelope_material_mass_kg', ...
-    'estimated_net_lift_after_envelope_mass_g', ...
     'projected_area_xy_m2', ...
     'projected_area_xz_m2', ...
     'projected_area_yz_m2', ...
@@ -282,15 +308,10 @@ requiredColumnOrder = { ...
     'drag_coefficient_y', ...
     'drag_coefficient_z', ...
     'disturbance_stability_index', ...
-    'normalised_material_efficiency', ...
-    'normalised_disturbance', ...
-    'normalised_size_constraint', ...
-    'weighted_material_contribution', ...
-    'weighted_disturbance_contribution', ...
-    'weighted_size_contribution', ...
-    'weighted_total_score', ...
-    'rank', ...
-    'recommendation_note'};
+    'max_dimension_m', ...
+    'rank_SA_V', ...
+    'rank_disturbance', ...
+    'rank_max_dimension'};
 
 actualColumns = decisionOutput.Properties.VariableNames;
 missingColumns = setdiff(requiredColumnOrder, actualColumns, 'stable');
@@ -308,40 +329,64 @@ writetable(rankingRobustness, fullfile(cfg.paths.results_dir, 'envelope_ranking_
 writetable(paretoTable, fullfile(cfg.paths.results_dir, 'envelope_pareto_analysis.csv'));
 end
 
-function print_console_summary(decisionMatrix, paretoTable, rankingRobustness, engineeringSignificanceSummary, selectedShape)
+function print_console_summary(decisionMatrix, paretoTable, rankingRobustness, engineeringSignificanceSummary, selectedShape, nextBestShape)
 selectedRow = decisionMatrix(decisionMatrix.shape == string(selectedShape), :);
 selectedPareto = paretoTable(paretoTable.shape == string(selectedShape), :);
 selectedRobustness = rankingRobustness(rankingRobustness.shape == string(selectedShape), :);
 
-cuboidRow = decisionMatrix(decisionMatrix.shape == "Cuboid", :);
-prolateRow = decisionMatrix(decisionMatrix.shape == "Prolate Ellipsoid", :);
+cuboidMetricRows = engineeringSignificanceSummary( ...
+    engineeringSignificanceSummary.selected_shape == string(selectedShape) & ...
+    engineeringSignificanceSummary.comparison_shape == "Cuboid", :);
+prolateMetricRows = engineeringSignificanceSummary( ...
+    engineeringSignificanceSummary.selected_shape == string(selectedShape) & ...
+    engineeringSignificanceSummary.comparison_shape == "Prolate Ellipsoid", :);
+flattenedMetricRows = engineeringSignificanceSummary( ...
+    engineeringSignificanceSummary.selected_shape == string(selectedShape) & ...
+    engineeringSignificanceSummary.comparison_shape == "Flattened Ellipsoid", :);
+
 selectedShapeChar = char(string(selectedShape));
+nextBestShapeChar = char(string(nextBestShape));
 
 fprintf('\n=== Envelope geometry recommendation ===\n');
 fprintf('Selected shape: %s\n', selectedShapeChar);
 fprintf('Required volume: %.2f L\n', selectedRow.required_volume_L);
-fprintf('Dimensions [L x W x H]: %.3f x %.3f x %.3f m\n', selectedRow.length_m, selectedRow.width_m, selectedRow.height_m);
-fprintf('Selected SA/V: %.3f 1/m\n', selectedRow.surface_area_to_volume_1_m);
-fprintf('Selected estimated envelope material mass: %.4f kg\n', selectedRow.estimated_envelope_material_mass_kg);
-fprintf('Selected estimated net lift after envelope material mass: %.2f g\n', selectedRow.estimated_net_lift_after_envelope_mass_g);
-fprintf('Selected disturbance index: %.4f\n', selectedRow.disturbance_stability_index);
-fprintf('Selected weighted decision score: %.4f\n', selectedRow.weighted_total_score);
+fprintf('Selected shape dimensions [L x W x H]: %.3f x %.3f x %.3f m\n', selectedRow.length_m, selectedRow.width_m, selectedRow.height_m);
+fprintf('Selected shape SA/V and rank: %.3f 1/m (rank %.1f)\n', selectedRow.surface_area_to_volume_1_m, selectedRow.rank_SA_V);
+fprintf('Selected shape disturbance stability index and rank: %.4f (rank %.1f)\n', selectedRow.disturbance_stability_index, selectedRow.rank_disturbance);
+fprintf('Selected shape max dimension and rank: %.3f m (rank %.1f)\n', selectedRow.max_dimension_m, selectedRow.rank_max_dimension);
 fprintf('Selected shape Pareto-dominated: %s\n', logical_to_text(selectedPareto.is_pareto_dominated));
-fprintf('Ranking robustness: ranked first in %.1f%% of sensitivity cases\n', selectedRobustness.percentage_of_sweep_cases_ranked_first);
-fprintf('Comparison to cuboid: SA/V improvement %.1f%%, weighted score improvement %.1f%%\n', ...
-    lookup_improvement(engineeringSignificanceSummary, 'surface_area_to_volume_ratio', selectedShape, 'Cuboid'), ...
-    lookup_improvement(engineeringSignificanceSummary, 'weighted_total_score', selectedShape, 'Cuboid'));
-fprintf('Comparison to prolate ellipsoid: SA/V improvement %.1f%%, weighted score improvement %.1f%%\n', ...
-    relative_improvement(selectedRow.surface_area_to_volume_1_m, prolateRow.surface_area_to_volume_1_m, 'lower'), ...
-    relative_improvement(selectedRow.weighted_total_score, prolateRow.weighted_total_score, 'lower'));
-fprintf('Final recommendation: The %s is selected as the preferred envelope geometry based on geometry-derived engineering metrics, with non-dominated performance and robust sensitivity ranking.\n', lower(selectedShapeChar));
+fprintf('Percentage non-Pareto-dominated across sensitivity cases: %.1f%%\n', selectedRobustness.percentage_non_pareto_dominated);
 
-if contains(selectedRow.recommendation_note, 'does not strongly distinguish')
-    fprintf('Model distinction note: Near-best shapes have close scores at the current threshold; physical validation is recommended before final shape lock-in.\n');
+fprintf('Comparison to cuboid:\n');
+print_metric_comparison_block(cuboidMetricRows, 'Cuboid');
+fprintf('Comparison to prolate ellipsoid:\n');
+print_metric_comparison_block(prolateMetricRows, 'Prolate Ellipsoid');
+fprintf('Comparison to flattened ellipsoid:\n');
+print_metric_comparison_block(flattenedMetricRows, 'Flattened Ellipsoid');
+
+if model_not_strongly_distinguished(engineeringSignificanceSummary, selectedShape, nextBestShape)
+    fprintf('Final recommendation: The %s is recommended because it is non-Pareto-dominated and ranked best or near-best across the supported geometry-derived metrics. The model does not strongly distinguish it from %s, so physical validation is recommended before final lock-in.\n', ...
+        lower(selectedShapeChar), nextBestShapeChar);
+else
+    fprintf('Final recommendation: The %s is recommended because it is non-Pareto-dominated and ranked best or near-best across the supported geometry-derived metrics.\n', ...
+        lower(selectedShapeChar));
 end
 
 fprintf('\nSupplementary context: ANOVA is included as a screening tool only. The primary decision is based on engineering significance because the simulation outputs are deterministic model results, not repeated physical measurements.\n');
-fprintf('Cuboid reference weighted score: %.4f\n', cuboidRow.weighted_total_score);
+end
+
+function print_metric_comparison_block(metricRows, comparisonLabel)
+if isempty(metricRows)
+    fprintf('  %s comparison not available in current run.\n', comparisonLabel);
+    return;
+end
+
+for rowIndex = 1:height(metricRows)
+    fprintf('  %s: %.1f%% difference (%s).\n', ...
+        metricRows.metric{rowIndex}, ...
+        metricRows.percent_difference(rowIndex), ...
+        metricRows.engineering_significance_category{rowIndex});
+end
 end
 
 function textValue = logical_to_text(logicalValue)
@@ -352,30 +397,11 @@ else
 end
 end
 
-function improvement = lookup_improvement(summaryTable, metricName, selectedShape, comparisonShape)
-row = summaryTable(strcmp(summaryTable.metric, metricName) & strcmp(summaryTable.selected_shape, selectedShape) & ...
-    strcmp(summaryTable.comparison_shape, comparisonShape), :);
-if isempty(row)
-    improvement = NaN;
-else
-    improvement = row.percent_improvement(1);
-end
-end
-
-function improvement = relative_improvement(selectedValue, comparisonValue, direction)
-referenceValue = max(abs(comparisonValue), eps);
-if strcmpi(direction, 'higher')
-    improvement = 100 * (selectedValue - comparisonValue) / referenceValue;
-else
-    improvement = 100 * (comparisonValue - selectedValue) / referenceValue;
-end
-end
-
 function textValue = pareto_result_text(paretoTable, selectedShape)
 selectedRow = paretoTable(paretoTable.shape == string(selectedShape), :);
 selectedShapeChar = char(string(selectedShape));
 if selectedRow.is_pareto_dominated
-    textValue = sprintf('%s is Pareto-dominated under the selected metrics and was retained only because of the hierarchical recommendation constraints.', selectedShapeChar);
+    textValue = sprintf('%s is Pareto-dominated under the selected metrics and should only be retained with explicit justification.', selectedShapeChar);
 else
     textValue = sprintf('%s is not Pareto-dominated under surface-area-to-volume ratio, disturbance stability index, and maximum dimension.', selectedShapeChar);
 end

@@ -46,26 +46,10 @@ end
 
 decisionMatrix = struct2table(rows);
 
-decisionMatrix.normalised_material_efficiency = min_max_normalise(decisionMatrix.surface_area_to_volume_1_m);
-decisionMatrix.normalised_disturbance = min_max_normalise(decisionMatrix.disturbance_stability_index);
-decisionMatrix.normalised_size_constraint = min_max_normalise(decisionMatrix.max_dimension_m);
-
-decisionMatrix.weighted_material_contribution = ...
-    cfg.weights.material_efficiency * decisionMatrix.normalised_material_efficiency;
-decisionMatrix.weighted_disturbance_contribution = ...
-    cfg.weights.disturbance_response * decisionMatrix.normalised_disturbance;
-decisionMatrix.weighted_size_contribution = ...
-    cfg.weights.size_constraint * decisionMatrix.normalised_size_constraint;
-
-decisionMatrix.weighted_total_score = ...
-    decisionMatrix.weighted_material_contribution + ...
-    decisionMatrix.weighted_disturbance_contribution + ...
-    decisionMatrix.weighted_size_contribution;
-
-[~, order] = sort(decisionMatrix.weighted_total_score, 'ascend');
-rank = zeros(height(decisionMatrix), 1);
-rank(order) = 1:height(decisionMatrix);
-decisionMatrix.rank = rank;
+% Use separate lower-is-better metric ranks to avoid subjective weighted aggregation.
+decisionMatrix.rank_SA_V = rank_lower_better(decisionMatrix.surface_area_to_volume_1_m);
+decisionMatrix.rank_disturbance = rank_lower_better(decisionMatrix.disturbance_stability_index);
+decisionMatrix.rank_max_dimension = rank_lower_better(decisionMatrix.max_dimension_m);
 decisionMatrix.recommendation_note = repmat("Candidate under review", height(decisionMatrix), 1);
 
 analysisMeta.required_volume_m3 = requiredVolume_m3;
@@ -76,14 +60,24 @@ analysisMeta.buoyancy_ratio = buoyancyRatio;
 
 end
 
-function normalisedValues = min_max_normalise(values)
-minimumValue = min(values);
-maximumValue = max(values);
+function ranks = rank_lower_better(values)
+if exist('tiedrank', 'file') == 2
+    ranks = tiedrank(values);
+    return;
+end
 
-if abs(maximumValue - minimumValue) < 1.0e-12
-    normalisedValues = zeros(size(values));
-else
-    normalisedValues = (values - minimumValue) ./ (maximumValue - minimumValue);
+% Fallback average-rank implementation for tied values.
+[sortedValues, sortIndex] = sort(values, 'ascend');
+ranks = zeros(size(values));
+position = 1;
+while position <= numel(sortedValues)
+    tieEnd = position;
+    while tieEnd < numel(sortedValues) && sortedValues(tieEnd + 1) == sortedValues(position)
+        tieEnd = tieEnd + 1;
+    end
+    averageRank = (position + tieEnd) / 2;
+    ranks(sortIndex(position:tieEnd)) = averageRank;
+    position = tieEnd + 1;
 end
 end
 

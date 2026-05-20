@@ -15,6 +15,7 @@ for massIndex = 1:numel(cfg.sensitivity.mass_g)
         for densityIndex = 1:numel(cfg.sensitivity.surface_density_kg_m2)
             surfaceDensity_kg_m2 = cfg.sensitivity.surface_density_kg_m2(densityIndex);
             [decisionMatrix, ~] = generate_envelope_decision_matrix(cfg, mass_g, buoyancyRatio, surfaceDensity_kg_m2);
+            paretoTable = compute_pareto_flags(decisionMatrix);
 
             for rowIndex = 1:height(decisionMatrix)
                 caseCounter = caseCounter + 1;
@@ -24,13 +25,12 @@ for massIndex = 1:numel(cfg.sensitivity.mass_g)
                 resultRows(caseCounter).shape = decisionMatrix.shape(rowIndex);
                 resultRows(caseCounter).required_volume_L = decisionMatrix.required_volume_L(rowIndex);
                 resultRows(caseCounter).surface_area_to_volume_1_m = decisionMatrix.surface_area_to_volume_1_m(rowIndex);
-                resultRows(caseCounter).estimated_envelope_material_mass_kg = ...
-                    decisionMatrix.estimated_envelope_material_mass_kg(rowIndex);
-                resultRows(caseCounter).estimated_net_lift_after_envelope_mass_g = ...
-                    decisionMatrix.estimated_net_lift_after_envelope_mass_g(rowIndex);
                 resultRows(caseCounter).disturbance_stability_index = decisionMatrix.disturbance_stability_index(rowIndex);
-                resultRows(caseCounter).weighted_total_score = decisionMatrix.weighted_total_score(rowIndex);
-                resultRows(caseCounter).rank = decisionMatrix.rank(rowIndex);
+                resultRows(caseCounter).max_dimension_m = decisionMatrix.max_dimension_m(rowIndex);
+                resultRows(caseCounter).rank_SA_V = decisionMatrix.rank_SA_V(rowIndex);
+                resultRows(caseCounter).rank_disturbance = decisionMatrix.rank_disturbance(rowIndex);
+                resultRows(caseCounter).rank_max_dimension = decisionMatrix.rank_max_dimension(rowIndex);
+                resultRows(caseCounter).is_pareto_dominated = paretoTable.is_pareto_dominated(rowIndex);
             end
         end
     end
@@ -46,20 +46,54 @@ totalSweepCases = numel(cfg.sensitivity.mass_g) * numel(cfg.sensitivity.buoyancy
 for shapeIndex = 1:numel(uniqueShapes)
     shapeName = uniqueShapes(shapeIndex);
     shapeMask = sensitivityResults.shape == shapeName;
-    ranks = sensitivityResults.rank(shapeMask);
+    ranksSAV = sensitivityResults.rank_SA_V(shapeMask);
+    ranksDisturbance = sensitivityResults.rank_disturbance(shapeMask);
+    ranksMaxDimension = sensitivityResults.rank_max_dimension(shapeMask);
+    nonDominatedMask = ~sensitivityResults.is_pareto_dominated(shapeMask);
 
     robustnessRows(shapeIndex).shape = shapeName;
-    robustnessRows(shapeIndex).number_of_sweep_cases_ranked_first = sum(ranks == 1);
-    robustnessRows(shapeIndex).percentage_of_sweep_cases_ranked_first = ...
-        100 * sum(ranks == 1) / totalSweepCases;
-    robustnessRows(shapeIndex).number_of_sweep_cases_ranked_second = sum(ranks == 2);
-    robustnessRows(shapeIndex).percentage_of_sweep_cases_ranked_second = ...
-        100 * sum(ranks == 2) / totalSweepCases;
-    robustnessRows(shapeIndex).average_rank = mean(ranks);
-    robustnessRows(shapeIndex).worst_rank = max(ranks);
-    robustnessRows(shapeIndex).best_rank = min(ranks);
+    robustnessRows(shapeIndex).percentage_ranked_first_SA_V = 100 * sum(ranksSAV == 1) / totalSweepCases;
+    robustnessRows(shapeIndex).percentage_ranked_first_disturbance = 100 * sum(ranksDisturbance == 1) / totalSweepCases;
+    robustnessRows(shapeIndex).percentage_ranked_first_max_dimension = 100 * sum(ranksMaxDimension == 1) / totalSweepCases;
+    robustnessRows(shapeIndex).percentage_non_pareto_dominated = 100 * sum(nonDominatedMask) / totalSweepCases;
+    robustnessRows(shapeIndex).average_rank_SA_V = mean(ranksSAV);
+    robustnessRows(shapeIndex).average_rank_disturbance = mean(ranksDisturbance);
+    robustnessRows(shapeIndex).average_rank_max_dimension = mean(ranksMaxDimension);
+    robustnessRows(shapeIndex).robustness_note = sprintf('%s ranked first for SA/V in %.1f%% of sensitivity cases and remained non-Pareto-dominated in %.1f%% of cases.', ...
+        char(shapeName), robustnessRows(shapeIndex).percentage_ranked_first_SA_V, robustnessRows(shapeIndex).percentage_non_pareto_dominated);
 end
 
-rankingRobustness = sortrows(struct2table(robustnessRows), {'average_rank', 'percentage_of_sweep_cases_ranked_first'}, {'ascend', 'descend'});
+rankingRobustness = sortrows(struct2table(robustnessRows), ...
+    {'percentage_non_pareto_dominated', 'average_rank_SA_V', 'average_rank_disturbance'}, ...
+    {'descend', 'ascend', 'ascend'});
+
+end
+
+function paretoTable = compute_pareto_flags(decisionMatrix)
+metricMatrix = [ ...
+    decisionMatrix.surface_area_to_volume_1_m, ...
+    decisionMatrix.disturbance_stability_index, ...
+    decisionMatrix.max_dimension_m];
+
+shapeCount = height(decisionMatrix);
+dominated = false(shapeCount, 1);
+
+for rowIndex = 1:shapeCount
+    for comparisonIndex = 1:shapeCount
+        if rowIndex == comparisonIndex
+            continue;
+        end
+
+        comparisonBetterOrEqual = all(metricMatrix(comparisonIndex, :) <= metricMatrix(rowIndex, :));
+        comparisonStrictlyBetter = any(metricMatrix(comparisonIndex, :) < metricMatrix(rowIndex, :));
+        if comparisonBetterOrEqual && comparisonStrictlyBetter
+            dominated(rowIndex) = true;
+            break;
+        end
+    end
+end
+
+paretoTable = table(decisionMatrix.shape, dominated, ...
+    'VariableNames', {'shape', 'is_pareto_dominated'});
 
 end

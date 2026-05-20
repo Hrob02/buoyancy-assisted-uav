@@ -16,15 +16,9 @@ cfg.system.target_buoyancy_ratio = 0.90;
 
 cfg.envelope.sigma_ref_kg_m2 = 0.05;
 
-cfg.weights.material_efficiency = 0.40;
-cfg.weights.disturbance_response = 0.40;
-cfg.weights.size_constraint = 0.20;
-cfg.weights.sum_tolerance = 1.0e-9;
-
 cfg.engineering_significance.material_efficiency_threshold_percent = 5.0;
 cfg.engineering_significance.disturbance_threshold_percent = 10.0;
-cfg.engineering_significance.size_threshold_percent = 10.0;
-cfg.engineering_significance.score_difference_threshold_percent = 5.0;
+cfg.engineering_significance.size_threshold_percent = 5.0;
 
 cfg.constraints.apply_size_limits = false;
 cfg.constraints.max_length_m = inf;
