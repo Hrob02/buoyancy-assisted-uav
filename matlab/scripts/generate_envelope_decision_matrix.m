@@ -46,7 +46,7 @@ end
 
 decisionMatrix = struct2table(rows);
 
-% Use separate lower-is-better metric ranks to avoid subjective weighted aggregation.
+% Compute lower-is-better metric ranks for each candidate.
 decisionMatrix.rank_SA_V = rank_lower_better(decisionMatrix.surface_area_to_volume_1_m);
 decisionMatrix.rank_disturbance = rank_lower_better(decisionMatrix.disturbance_stability_index);
 decisionMatrix.rank_max_dimension = rank_lower_better(decisionMatrix.max_dimension_m);
