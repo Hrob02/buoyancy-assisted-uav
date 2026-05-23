@@ -19,6 +19,17 @@ This directory contains all MATLAB modelling code.
 2. Run `scripts/setup_paths.m` to configure the MATLAB path.
 3. Run `scripts/main.m` to execute the full modelling pipeline.
 
+### Buoyancy Measurement Workflow
+
+For interactive foil-balloon lift experiment processing:
+
+1. Run `scripts/setup_paths.m`.
+2. Run `scripts/run_buoyancy_measurement_analysis.m`.
+
+Outputs are written to:
+- `matlab/results/buoyancy_measurement/`
+- `matlab/figures/buoyancy_measurement/`
+
 ## Conventions
 
 - Functions are in `model/` with one function per file, named after the function.
