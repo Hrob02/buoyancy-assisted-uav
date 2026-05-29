@@ -6,12 +6,14 @@
 % Inputs requested from the user:
 %   - Number of balloon sizes tested.
 %   - One overall tare mass for the full experiment (optional).
-%   - Per balloon: label, stated diameter from packet, optional brand/material,
-%     number of trials.
+%   - Per balloon: label, stated diameter from packet, optional measured
+%     half-circumference, optional brand/material, number of trials.
 %   - Per trial: scale reading and optional notes.
 %
 % Equations used:
-%   - d_measured = d_packet (when circumference/diameter were not measured)
+%   - C_measured = 2 * C_half_measured
+%   - d_measured = C_measured / pi
+%   - d_measured = d_packet (fallback when circumference not measured)
 %   - V = (4/3) * pi * r^3
 %   - F_lift = m_lift * g
 %   - F_predicted = (rho_air - rho_helium) * g * V
@@ -83,6 +85,18 @@ for balloonIndex = 1:numBalloonSizes
 
     nominalDiameter_m = prompt_positive_number( ...
         'Stated balloon diameter from packet [m] (used for all trials of this balloon): ');
+    measuredHalfCircumference_m = prompt_optional_positive_number( ...
+        ['Measured HALF circumference [m] (optional; measured around the widest part, ' ...
+        'press Enter to skip): ']);
+
+    if isnan(measuredHalfCircumference_m)
+        measuredDiameterFromCircumference_m = NaN;
+        measuredCircumference_m = NaN;
+    else
+        measuredCircumference_m = 2.0 * measuredHalfCircumference_m;
+        measuredDiameterFromCircumference_m = measuredCircumference_m / pi;
+    end
+
     brandName = prompt_text_value('Balloon brand/product name (optional): ');
     materialType = prompt_text_value('Balloon material/type (optional): ');
     numberOfTrials = prompt_positive_integer('Number of trials for this balloon: ');
@@ -97,8 +111,14 @@ for balloonIndex = 1:numBalloonSizes
         fprintf('\nBalloon "%s" - Trial %d of %d\n', balloonLabel, trialIndex, numberOfTrials);
 
         tareMass_g = tareMassOverall_g;
-        measuredDiameter_m = nominalDiameter_m;
-        diameterSource = "packet_stated_once_per_balloon";
+
+        if isfinite(measuredDiameterFromCircumference_m) && measuredDiameterFromCircumference_m > 0
+            measuredDiameter_m = measuredDiameterFromCircumference_m;
+            diameterSource = "measured_half_circumference_once_per_balloon";
+        else
+            measuredDiameter_m = nominalDiameter_m;
+            diameterSource = "packet_stated_once_per_balloon";
+        end
 
         scaleReading_g = prompt_scale_reading('Scale reading [g] (negative values indicate upward lift): ');
 
@@ -121,6 +141,8 @@ for balloonIndex = 1:numBalloonSizes
             'NominalDiameter_m', nominalDiameter_m, ...
             'TrialNumber', trialIndex, ...
             'TareMass_g', tareMass_g, ...
+            'MeasuredHalfCircumference_m', measuredHalfCircumference_m, ...
+            'MeasuredCircumference_m', measuredCircumference_m, ...
             'MeasuredDiameter_m', measuredDiameter_m, ...
             'EstimatedVolume_m3', estimatedVolume_m3, ...
             'ScaleReading_g', scaleReading_g, ...
@@ -146,10 +168,11 @@ trialTable = struct2table(trialStruct);
 
 trialColumnOrder = { ...
     'BalloonLabel', 'NominalDiameter_m', 'TrialNumber', 'TareMass_g', ...
+    'MeasuredHalfCircumference_m', 'MeasuredCircumference_m', ...
     'MeasuredDiameter_m', 'EstimatedVolume_m3', ...
     'ScaleReading_g', 'MeasuredLift_g', 'MeasuredLift_N', ...
     'PredictedLift_g', 'PredictedLift_N', 'Difference_g', ...
-    'PercentDifference', 'Notes'};
+    'PercentDifference', 'DiameterSource', 'Notes'};
 trialTable = trialTable(:, trialColumnOrder);
 
 summaryTable = create_buoyancy_summary_table(trialTable);
@@ -238,6 +261,17 @@ while true
         return;
     end
     fprintf('Invalid input. Enter a nonnegative value or press Enter to skip.\n');
+end
+end
+
+function value = prompt_optional_positive_number(promptText)
+%PROMPT_OPTIONAL_POSITIVE_NUMBER Prompt optional number constrained to > 0.
+while true
+    value = prompt_optional_number(promptText);
+    if isnan(value) || value > 0
+        return;
+    end
+    fprintf('Invalid input. Enter a positive value or press Enter to skip.\n');
 end
 end
 
