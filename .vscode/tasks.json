@@ -1,0 +1,186 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    // {
+    //   "label": "Setup ROS Sim (WSL)",
+    //   "type": "shell",
+    //   "hide": true,
+    //   "command": "wsl",
+    //   "args": [
+    //     "bash",
+    //     "-lc",
+    //     "set -eo pipefail; cd \"$(wslpath '${workspaceFolder}')/ros_ws\"; source /opt/ros/humble/setup.bash; if [ ! -f install/setup.bash ] || [ ! -f .ui_ros_build.stamp ] || find src -type f -newer .ui_ros_build.stamp | grep -q .; then echo '[setup_ros_sim] Changes detected or first run: building ROS packages...'; colcon build --packages-select uav_interfaces uav_sim; touch .ui_ros_build.stamp; else echo '[setup_ros_sim] No ROS source changes detected: skipping colcon build.'; fi"
+    //   ],
+    //   "presentation": {
+    //     "reveal": "always",
+    //     "panel": "shared",
+    //     "clear": false
+    //   },
+    //   "problemMatcher": []
+    // },
+    // {
+    //   "label": "Run ROS Sim",
+    //   "type": "shell",
+    //   "command": "wsl",
+    //   "args": [
+    //     "bash",
+    //     "-lc",
+    //     "set -eo pipefail; pkill -9 -x gazebo >/dev/null 2>&1 || true; pkill -9 -x gzserver >/dev/null 2>&1 || true; pkill -9 -x gzclient >/dev/null 2>&1 || true; pkill -9 -x gz >/dev/null 2>&1 || true; pkill -9 -x rviz2 >/dev/null 2>&1 || true; fuser -k 11345/tcp >/dev/null 2>&1 || true; cd \"$(wslpath '${workspaceFolder}')/ros_ws\"; source /opt/ros/humble/setup.bash; source install/setup.bash; ros2 launch uav_sim sim_crazyflie_visual.launch.py"
+    //   ],
+    //   "dependsOn": "Setup ROS Sim (WSL)",
+    //   "dependsOrder": "sequence",
+    //   "group": {
+    //     "kind": "build",
+    //     "isDefault": true
+    //   },
+    //   "presentation": {
+    //     "reveal": "always",
+    //     "panel": "shared",
+    //     "clear": false
+    //   },
+    //   "problemMatcher": []
+    // },
+    // {
+    //   "label": "Run ROS Sim (Manual Topic Control)",
+    //   "type": "shell",
+    //   "command": "wsl",
+    //   "args": [
+    //     "bash",
+    //     "-lc",
+    //     "set -eo pipefail; pkill -9 -x gazebo >/dev/null 2>&1 || true; pkill -9 -x gzserver >/dev/null 2>&1 || true; pkill -9 -x gzclient >/dev/null 2>&1 || true; pkill -9 -x gz >/dev/null 2>&1 || true; pkill -9 -x rviz2 >/dev/null 2>&1 || true; fuser -k 11345/tcp >/dev/null 2>&1 || true; cd \"$(wslpath '${workspaceFolder}')/ros_ws\"; source /opt/ros/humble/setup.bash; source install/setup.bash; ros2 launch uav_sim sim_crazyflie_visual.launch.py autopilot_enabled:=false"
+    //   ],
+    //   "dependsOn": "Setup ROS Sim (WSL)",
+    //   "dependsOrder": "sequence",
+    //   "presentation": {
+    //     "reveal": "always",
+    //     "panel": "shared",
+    //     "clear": false
+    //   },
+    //   "problemMatcher": []
+    // },
+    {
+      "label": "Run MATLAB Envelope Study",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "scripts/run_matlab.ps1"
+      ],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": false
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Run MATLAB Duty-Cycle Analysis",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "scripts/run_matlab_duty_cycle.ps1"
+      ],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": false
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Input MATLAB Buoyant Lift Measurements",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "scripts/run_matlab_buoyancy_measurement.ps1"
+      ],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": false
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Input MATLAB Hover Endurance Measurements",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "scripts/run_matlab_hover_endurance.ps1"
+      ],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": false
+      },
+      "problemMatcher": []
+    },
+    // {
+    //   "label": "Stop ROS Sim",
+    //   "type": "shell",
+    //   "command": "wsl",
+    //   "args": [
+    //     "bash",
+    //     "-lc",
+    //     "pkill -9 -x gazebo >/dev/null 2>&1 || true; pkill -9 -x gzserver >/dev/null 2>&1 || true; pkill -9 -x gzclient >/dev/null 2>&1 || true; pkill -9 -x gz >/dev/null 2>&1 || true; pkill -9 -x rviz2 >/dev/null 2>&1 || true; fuser -k 11345/tcp >/dev/null 2>&1 || true; echo '[stop_ros_sim] Cleanup complete.'"
+    //   ],
+    //   "presentation": {
+    //     "reveal": "always",
+    //     "panel": "shared",
+    //     "clear": false
+    //   },
+    //   "problemMatcher": []
+    // },
+    {
+      "label": "Install Python Requirements",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        "$venv = '.venv'; if (-not (Get-Command py -ErrorAction SilentlyContinue)) { throw 'Python launcher (py) not found on PATH.' }; if (-not (Test-Path $venv)) { py -3.11 -m venv $venv }; $pyExe = Join-Path $venv 'Scripts\\python.exe'; if (-not (Test-Path $pyExe)) { throw 'Virtual environment python not found.' }; & $pyExe -m pip install --upgrade pip; & $pyExe -m pip install -r requirements.txt"
+      ],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      },
+      "problemMatcher": []
+    // },
+    // {
+    //   "label": "Run UI",
+    //   "type": "shell",
+    //   "command": "powershell",
+    //   "args": [
+    //     "-NoProfile",
+    //     "-ExecutionPolicy",
+    //     "Bypass",
+    //     "-Command",
+    //     "$pyExe = '.\\.venv\\Scripts\\python.exe'; if (-not (Test-Path $pyExe)) { throw 'Virtual environment python not found. Run the Install Python Requirements task first.' }; & $pyExe ui\\app.py"
+    //   ],
+    //   "presentation": {
+    //     "reveal": "always",
+    //     "panel": "shared",
+    //     "clear": false
+    //   },
+    //   "problemMatcher": []
+    }
+  ]
+}
