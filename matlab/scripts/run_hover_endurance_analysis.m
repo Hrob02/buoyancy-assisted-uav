@@ -58,107 +58,20 @@ uavModel = "Crazyflie 2.1+";
 gravity_m_s2 = 9.81;
 
 configurationLabels = ["Baseline unassisted"; "Assisted"];
-isBaselineConfiguration = [true; false];
-
-baselineNotesPrompt = ['Configuration notes (optional). Examples: hover height, room temperature, ' ...
-    'room conditions, battery notes, control mode, stop condition definition, test date, or anything unusual: '];
-assistedNotesPrompt = ['Configuration notes (optional). Examples: hover height, room temperature, ' ...
-    'room conditions, battery notes, control mode, attachment method, balloon tether length, ' ...
-    'stop condition definition, test date, or anything unusual: '];
 
 fprintf('=== Hover Endurance Analysis ===\n');
 fprintf('UAV model: %s\n', uavModel);
 fprintf('Configurations are fixed: Baseline unassisted and Assisted.\n');
+fprintf('Trial data source: crazyflie/trial_results/*_hover_trial.csv\n');
 fprintf('Gravity constant: g = %.2f m/s^2\n\n', gravity_m_s2);
 
-%% Collect interactive experiment data
-trialRows = cell(0, 1);
-
-for configIndex = 1:numel(configurationLabels)
-    configLabel = configurationLabels(configIndex);
-    isBaseline = isBaselineConfiguration(configIndex);
-
-    fprintf('--- %s ---\n', configLabel);
-
-    if isBaseline
-        measuredBalloonLift_g = 0.0;
-    else
-        measuredBalloonLift_g = prompt_nonnegative_number('Measured balloon lift [g]: ');
-    end
-
-    assemblyMass_g = prompt_positive_number('Assembly mass [g]: ');
-    numberOfTrials = prompt_positive_integer('Number of trials: ');
-
-    if isBaseline
-        configurationNotes = prompt_text_value(baselineNotesPrompt);
-    else
-        configurationNotes = prompt_text_value(assistedNotesPrompt);
-    end
-
-    stopConditionPrompt = build_stop_condition_prompt(isBaseline);
-
-    for trialNumber = 1:numberOfTrials
-        while true
-            fprintf('\n%s - Trial %d of %d\n', configLabel, trialNumber, numberOfTrials);
-
-            batteryID = prompt_text_value('Battery ID (optional): ');
-            initialBattery_percent = prompt_optional_battery_percentage('Initial battery percentage (optional, Enter to skip): ');
-            finalBattery_percent = prompt_optional_battery_percentage('Final battery percentage (optional, Enter to skip): ');
-            hoverDuration_s = prompt_positive_number('Hover duration [s]: ');
-
-            stopCondition = prompt_text_value(stopConditionPrompt);
-            if strlength(stopCondition) == 0
-                stopCondition = "unspecified";
-            end
-
-            isValid = prompt_yes_no('Was this trial valid for the main endurance comparison? yes/no [y/n]: ');
-
-            if ~isValid
-                redoNow = prompt_yes_no('Do you want to redo this trial now? yes/no [y/n]: ');
-                if redoNow
-                    fprintf('Re-entering trial %d for %s.\n', trialNumber, configLabel);
-                    continue;
-                end
-            end
-
-            trialNotes = prompt_text_value('Trial notes (optional): ');
-
-            [assemblyWeight_N, measuredBalloonLift_N, brPhysical] = ...
-                calculate_trial_quantities(assemblyMass_g, measuredBalloonLift_g, gravity_m_s2, isBaseline);
-            [batteryUsed_percent, hoverSecondsPerBatteryPercent] = ...
-                calculate_battery_normalized_metrics(initialBattery_percent, finalBattery_percent, hoverDuration_s);
-
-            trialRows{end + 1, 1} = struct( ...
-                'ConfigurationLabel', string(configLabel), ...
-                'UAVModel', string(uavModel), ...
-                'IsBaseline', logical(isBaseline), ...
-                'TrialNumber', trialNumber, ...
-                'BatteryID', string(batteryID), ...
-                'InitialBattery_percent', initialBattery_percent, ...
-                'FinalBattery_percent', finalBattery_percent, ...
-                'AssemblyMass_g', assemblyMass_g, ...
-                'AssemblyWeight_N', assemblyWeight_N, ...
-                'MeasuredBalloonLift_g', measuredBalloonLift_g, ...
-                'MeasuredBalloonLift_N', measuredBalloonLift_N, ...
-                'BR_physical', brPhysical, ...
-                'HoverDuration_s', hoverDuration_s, ...
-                'HoverDuration_min', hoverDuration_s / 60.0, ...
-                'BatteryUsed_percent', batteryUsed_percent, ...
-                'HoverSecondsPerBatteryPercent', hoverSecondsPerBatteryPercent, ...
-                'StopCondition', string(stopCondition), ...
-                'IsValid', logical(isValid), ...
-                'ConfigurationNotes', string(configurationNotes), ...
-                'TrialNotes', string(trialNotes)); %#ok<SAGROW>
-
-            break;
-        end
-    end
-
-    fprintf('\nCompleted data entry for %s.\n\n', configLabel);
-end
+%% Collect experiment data from flight-script outputs
+trialResultsCsvDir = fullfile(repoRoot, 'crazyflie', 'trial_results');
+trialRows = collect_trial_rows_from_flight_csvs(trialResultsCsvDir, uavModel, gravity_m_s2);
 
 if isempty(trialRows)
-    error('HoverEndurance:NoData', 'No trial data was entered.');
+    error('HoverEndurance:NoData', ...
+        'No usable trial data found in crazyflie/trial_results. Expected *_hover_trial.csv files.');
 end
 
 %% Build and save trial-level table
@@ -183,6 +96,19 @@ writetable(summaryTable, summaryCsvPath);
 comparisonTable = create_hover_endurance_comparison_table(summaryTable);
 comparisonCsvPath = fullfile(resultsDir, 'hover_endurance_comparison_summary.csv');
 writetable(comparisonTable, comparisonCsvPath);
+
+%% Analyze voltage drop rates from Crazyflie trial CSV files
+[voltageDropTrialTable, voltageDropSummaryTable, voltageDropComparisonTable, voltageDropWarnings] = ...
+    analyze_voltage_drop_from_trial_csvs(trialResultsCsvDir);
+
+voltageDropTrialCsvPath = fullfile(resultsDir, 'hover_endurance_voltage_drop_trial_rates.csv');
+writetable(voltageDropTrialTable, voltageDropTrialCsvPath);
+
+voltageDropSummaryCsvPath = fullfile(resultsDir, 'hover_endurance_voltage_drop_summary.csv');
+writetable(voltageDropSummaryTable, voltageDropSummaryCsvPath);
+
+voltageDropComparisonCsvPath = fullfile(resultsDir, 'hover_endurance_voltage_drop_comparison.csv');
+writetable(voltageDropComparisonTable, voltageDropComparisonCsvPath);
 
 %% Evaluate validity and warnings
 warningMessages = strings(0, 1);
@@ -246,6 +172,10 @@ if ~analysisPerformed
         "Formal hypothesis testing was not performed because fewer than three valid trials were available in one or more comparison groups."; %#ok<SAGROW>
 end
 
+if ~isempty(voltageDropWarnings)
+    warningMessages = unique([warningMessages; voltageDropWarnings], 'stable');
+end
+
 warningMessages = unique(warningMessages, 'stable');
 analysisTable.NotesWarnings(1) = strjoin(warningMessages, " | ");
 
@@ -257,17 +187,21 @@ validityCsvPath = fullfile(resultsDir, 'hover_endurance_validity_summary.csv');
 writetable(validityTable, validityCsvPath);
 
 %% Create and save figures (PNG only)
-figurePaths = plot_hover_endurance_results(trialTable, summaryTable, comparisonTable, figuresDir);
+figurePaths = plot_hover_endurance_results(trialTable, summaryTable, voltageDropTrialTable, figuresDir);
 
 %% Write text report
 reportPath = fullfile(resultsDir, 'hover_endurance_report_summary.txt');
-write_hover_endurance_report_summary(reportPath, summaryTable, comparisonTable, analysisTable, warningMessages, uavModel, configurationLabels);
+write_hover_endurance_report_summary(reportPath, summaryTable, comparisonTable, ...
+    voltageDropComparisonTable, analysisTable, warningMessages, uavModel, configurationLabels);
 
 %% Print completion summary
 fprintf('\n=== Hover Endurance Analysis Complete ===\n');
 fprintf('Trial-level CSV: %s\n', trialCsvPath);
 fprintf('Summary CSV: %s\n', summaryCsvPath);
 fprintf('Comparison CSV: %s\n', comparisonCsvPath);
+fprintf('Voltage-drop trial CSV: %s\n', voltageDropTrialCsvPath);
+fprintf('Voltage-drop summary CSV: %s\n', voltageDropSummaryCsvPath);
+fprintf('Voltage-drop comparison CSV: %s\n', voltageDropComparisonCsvPath);
 fprintf('Validity CSV: %s\n', validityCsvPath);
 fprintf('Analysis CSV: %s\n', analysisCsvPath);
 fprintf('Report summary: %s\n', reportPath);
@@ -288,96 +222,6 @@ end
 fprintf('\nPrimary result emphasis: measured endurance change relative to baseline and physical BR.\n');
 
 %% Local helper functions
-function value = prompt_positive_number(promptText)
-%PROMPT_POSITIVE_NUMBER Prompt until a positive finite scalar is entered.
-while true
-    raw = input(promptText, 's');
-    value = str2double(strtrim(raw));
-    if isfinite(value) && isscalar(value) && value > 0
-        return;
-    end
-    fprintf('Invalid input. Enter a positive numeric value.\n');
-end
-end
-
-function value = prompt_nonnegative_number(promptText)
-%PROMPT_NONNEGATIVE_NUMBER Prompt until a nonnegative finite scalar is entered.
-while true
-    raw = input(promptText, 's');
-    value = str2double(strtrim(raw));
-    if isfinite(value) && isscalar(value) && value >= 0
-        return;
-    end
-    fprintf('Invalid input. Enter a nonnegative numeric value.\n');
-end
-end
-
-function value = prompt_positive_integer(promptText)
-%PROMPT_POSITIVE_INTEGER Prompt until a positive integer is entered.
-while true
-    raw = input(promptText, 's');
-    value = str2double(strtrim(raw));
-    if isfinite(value) && isscalar(value) && value > 0 && abs(value - round(value)) < eps
-        value = round(value);
-        return;
-    end
-    fprintf('Invalid input. Enter a positive whole number.\n');
-end
-end
-
-function value = prompt_optional_number(promptText)
-%PROMPT_OPTIONAL_NUMBER Prompt for a numeric value; blank returns NaN.
-while true
-    raw = strtrim(input(promptText, 's'));
-    if isempty(raw)
-        value = NaN;
-        return;
-    end
-
-    value = str2double(raw);
-    if isfinite(value) && isscalar(value)
-        return;
-    end
-    fprintf('Invalid input. Enter a numeric value or press Enter to skip.\n');
-end
-end
-
-function value = prompt_optional_battery_percentage(promptText)
-%PROMPT_OPTIONAL_BATTERY_PERCENTAGE Prompt optional battery percent in [0, 100].
-while true
-    value = prompt_optional_number(promptText);
-    if isnan(value)
-        return;
-    end
-    if value >= 0 && value <= 100
-        return;
-    end
-    fprintf('Invalid input. Enter a value between 0 and 100, or press Enter to skip.\n');
-end
-end
-
-function textValue = prompt_text_value(promptText)
-%PROMPT_TEXT_VALUE Read free text from user; blank input is allowed.
-raw = input(promptText, 's');
-textValue = string(strtrim(raw));
-end
-
-function answer = prompt_yes_no(promptText)
-%PROMPT_YES_NO Prompt for yes/no responses.
-while true
-    raw = lower(strtrim(input(promptText, 's')));
-    if any(strcmp(raw, {'y', 'yes'}))
-        answer = true;
-        return;
-    end
-    if any(strcmp(raw, {'n', 'no'}))
-        answer = false;
-        return;
-    end
-    fprintf('Invalid input. Please enter yes/no or y/n.\n');
-end
-end
-
 function [assemblyWeight_N, measuredBalloonLift_N, brPhysical] = ...
     calculate_trial_quantities(assemblyMass_g, measuredBalloonLift_g, gravity_m_s2, isBaseline)
 %CALCULATE_TRIAL_QUANTITIES Compute derived force and physical BR metrics.
@@ -397,23 +241,6 @@ else
 end
 end
 
-function [batteryUsed_percent, hoverSecondsPerBatteryPercent] = ...
-    calculate_battery_normalized_metrics(initialBattery_percent, finalBattery_percent, hoverDuration_s)
-%CALCULATE_BATTERY_NORMALIZED_METRICS Compute battery-use support metrics.
-if ~isfinite(initialBattery_percent) || ~isfinite(finalBattery_percent)
-    batteryUsed_percent = NaN;
-    hoverSecondsPerBatteryPercent = NaN;
-    return;
-end
-
-batteryUsed_percent = initialBattery_percent - finalBattery_percent;
-if batteryUsed_percent > 0
-    hoverSecondsPerBatteryPercent = hoverDuration_s / batteryUsed_percent;
-else
-    hoverSecondsPerBatteryPercent = NaN;
-end
-end
-
 function summaryTable = create_hover_endurance_summary_table(trialTable, configurationLabels, uavModel)
 %CREATE_HOVER_ENDURANCE_SUMMARY_TABLE Build summary metrics using valid trials.
 summaryRows = cell(numel(configurationLabels), 1);
@@ -421,7 +248,22 @@ summaryRows = cell(numel(configurationLabels), 1);
 for i = 1:numel(configurationLabels)
     configLabel = configurationLabels(i);
     allRows = trialTable(trialTable.ConfigurationLabel == configLabel, :);
-    validRows = allRows(allRows.IsValid, :);
+    if isempty(allRows)
+        validRows = allRows;
+    else
+        validRows = allRows(allRows.IsValid, :);
+    end
+
+    defaultIsBaseline = strcmpi(configLabel, "Baseline unassisted");
+    isBaselineValue = defaultIsBaseline;
+    if ~isempty(allRows)
+        isBaselineValue = logical(allRows.IsBaseline(1));
+    end
+
+    configurationNotes = "";
+    if ~isempty(allRows)
+        configurationNotes = string(allRows.ConfigurationNotes(1));
+    end
 
     durations = validRows.HoverDuration_s;
     [mean_s, std_s, se_s, cv_percent, min_s, max_s] = compute_duration_statistics(durations);
@@ -429,7 +271,7 @@ for i = 1:numel(configurationLabels)
     summaryRows{i, 1} = struct( ...
         'ConfigurationLabel', string(configLabel), ...
         'UAVModel', string(uavModel), ...
-        'IsBaseline', logical(allRows.IsBaseline(1)), ...
+        'IsBaseline', logical(isBaselineValue), ...
         'NumberOfTrials', height(allRows), ...
         'NumberOfValidTrials', height(validRows), ...
         'MeanHoverDuration_s', mean_s, ...
@@ -451,7 +293,7 @@ for i = 1:numel(configurationLabels)
         'StdBatteryUsed_percent', std_or_nan(validRows.BatteryUsed_percent), ...
         'MeanHoverSecondsPerBatteryPercent', mean_or_nan(validRows.HoverSecondsPerBatteryPercent), ...
         'StdHoverSecondsPerBatteryPercent', std_or_nan(validRows.HoverSecondsPerBatteryPercent), ...
-        'ConfigurationNotes', string(allRows.ConfigurationNotes(1))); %#ok<AGROW>
+        'ConfigurationNotes', configurationNotes); %#ok<AGROW>
 end
 
 summaryTable = struct2table(vertcat(summaryRows{:}));
@@ -630,8 +472,8 @@ analysisTable = table( ...
     'NotesWarnings'});
 end
 
-function figurePaths = plot_hover_endurance_results(trialTable, summaryTable, comparisonTable, outputFolder)
-%PLOT_HOVER_ENDURANCE_RESULTS Generate required hover endurance figures.
+function figurePaths = plot_hover_endurance_results(trialTable, summaryTable, voltageDropTrialTable, outputFolder)
+%PLOT_HOVER_ENDURANCE_RESULTS Generate selected hover-endurance figures.
 figurePaths = {};
 
 baselineLabel = summaryTable.ConfigurationLabel(summaryTable.IsBaseline);
@@ -639,146 +481,443 @@ assistedLabel = summaryTable.ConfigurationLabel(~summaryTable.IsBaseline);
 
 baselineMean_s = summaryTable.MeanHoverDuration_s(summaryTable.IsBaseline);
 assistedMean_s = summaryTable.MeanHoverDuration_s(~summaryTable.IsBaseline);
-baselineStd_s = summaryTable.StdHoverDuration_s(summaryTable.IsBaseline);
-assistedStd_s = summaryTable.StdHoverDuration_s(~summaryTable.IsBaseline);
 
-%% Figure 1: Mean hover duration by configuration with standard deviation
-fig1 = figure('Color', 'w', 'Visible', 'off', 'Position', [120 120 900 560]);
+%% Figure 1: Trial hover-duration scatter with invalid marker style
+fig1 = figure('Color', 'w', 'Visible', 'off', 'Position', [120 120 960 560]);
 ax1 = axes(fig1);
-barValues = [baselineMean_s, assistedMean_s];
-errorValues = [baselineStd_s, assistedStd_s];
-
-bar(ax1, 1:2, barValues, 0.55, 'FaceColor', [0.17 0.47 0.70], 'EdgeColor', [0.05 0.05 0.05]);
 hold(ax1, 'on');
-errorbar(ax1, 1:2, barValues, errorValues, 'k.', 'LineWidth', 1.3, 'CapSize', 12);
-hold(ax1, 'off');
-
-set(ax1, 'XTick', 1:2, 'XTickLabel', cellstr([baselineLabel; assistedLabel]));
-ylabel(ax1, 'Hover duration [s]');
-xlabel(ax1, 'Configuration');
-title(ax1, 'Mean Valid Hover Duration by Configuration');
-grid(ax1, 'on');
-ylim(ax1, nonnegative_axis_limits(barValues + errorValues, 0.15));
-
-path1 = fullfile(outputFolder, 'hover_duration_summary_bar.png');
-exportgraphics(fig1, path1, 'Resolution', 220);
-figurePaths{end + 1, 1} = path1; %#ok<AGROW>
-close(fig1);
-
-%% Figure 2: Trial hover-duration scatter with invalid marker style
-fig2 = figure('Color', 'w', 'Visible', 'off', 'Position', [120 120 960 560]);
-ax2 = axes(fig2);
-hold(ax2, 'on');
 
 baselineRows = trialTable(trialTable.IsBaseline, :);
 assistedRows = trialTable(~trialTable.IsBaseline, :);
 
-plot_trial_scatter_group(ax2, baselineRows, 1, [0.12 0.45 0.70]);
-plot_trial_scatter_group(ax2, assistedRows, 2, [0.20 0.60 0.32]);
+plot_trial_scatter_group(ax1, baselineRows, 1, [0.12 0.45 0.70]);
+plot_trial_scatter_group(ax1, assistedRows, 2, [0.20 0.60 0.32]);
 
-plot(ax2, 1, baselineMean_s, 'kd', 'MarkerFaceColor', [1 1 1], 'MarkerSize', 9, 'DisplayName', 'Valid-trial mean');
-plot(ax2, 2, assistedMean_s, 'kd', 'MarkerFaceColor', [1 1 1], 'MarkerSize', 9, 'HandleVisibility', 'off');
+plot(ax1, 1, baselineMean_s, 'kd', 'MarkerFaceColor', [1 1 1], 'MarkerSize', 9, 'DisplayName', 'Valid-trial mean');
+plot(ax1, 2, assistedMean_s, 'kd', 'MarkerFaceColor', [1 1 1], 'MarkerSize', 9, 'HandleVisibility', 'off');
 
-set(ax2, 'XTick', 1:2, 'XTickLabel', cellstr([baselineLabel; assistedLabel]));
-xlim(ax2, [0.5, 2.5]);
-ylabel(ax2, 'Hover duration [s]');
-xlabel(ax2, 'Configuration');
-title(ax2, 'Trial Hover Duration by Configuration');
-grid(ax2, 'on');
-legend(ax2, 'Location', 'best');
-ylim(ax2, nonnegative_axis_limits(trialTable.HoverDuration_s, 0.15));
+set(ax1, 'XTick', 1:2, 'XTickLabel', cellstr([baselineLabel; assistedLabel]));
+xlim(ax1, [0.5, 2.5]);
+ylabel(ax1, 'Hover duration [s]');
+xlabel(ax1, 'Configuration');
+title(ax1, 'Trial Hover Duration by Configuration');
+grid(ax1, 'on');
+legend(ax1, 'Location', 'best');
+ylim(ax1, nonnegative_axis_limits(trialTable.HoverDuration_s, 0.15));
 
-path2 = fullfile(outputFolder, 'hover_duration_trial_scatter.png');
+path1 = fullfile(outputFolder, 'hover_duration_trial_scatter.png');
+exportgraphics(fig1, path1, 'Resolution', 220);
+figurePaths{end + 1, 1} = path1; %#ok<AGROW>
+close(fig1);
+
+%% Figure 2: Trial voltage-drop-rate scatter by configuration
+fig2 = figure('Color', 'w', 'Visible', 'off', 'Position', [120 120 960 560]);
+ax2 = axes(fig2);
+
+if isempty(voltageDropTrialTable)
+    axis(ax2, 'off');
+    text(ax2, 0.5, 0.5, 'No voltage-drop trial data available.', ...
+        'HorizontalAlignment', 'center', 'VerticalAlignment', 'middle', 'FontSize', 12);
+else
+    hold(ax2, 'on');
+
+    baselineVoltageRows = voltageDropTrialTable(voltageDropTrialTable.ConfigurationLabel == "Baseline unassisted", :);
+    assistedVoltageRows = voltageDropTrialTable(voltageDropTrialTable.ConfigurationLabel == "Assisted", :);
+
+    if ~isempty(baselineVoltageRows)
+        jitterBaseline = linspace(-0.08, 0.08, height(baselineVoltageRows));
+        scatter(ax2, 1 + jitterBaseline(:), baselineVoltageRows.VoltageDropRate_V_per_s, 48, 'o', ...
+            'MarkerFaceColor', [0.12 0.45 0.70], 'MarkerEdgeColor', [0.05 0.05 0.05], ...
+            'DisplayName', 'Baseline trial rates');
+        plot(ax2, 1, mean_or_nan(baselineVoltageRows.VoltageDropRate_V_per_s), 'kd', ...
+            'MarkerFaceColor', [1 1 1], 'MarkerSize', 9, 'DisplayName', 'Group mean');
+    end
+
+    if ~isempty(assistedVoltageRows)
+        jitterAssisted = linspace(-0.08, 0.08, height(assistedVoltageRows));
+        scatter(ax2, 2 + jitterAssisted(:), assistedVoltageRows.VoltageDropRate_V_per_s, 48, 'o', ...
+            'MarkerFaceColor', [0.20 0.60 0.32], 'MarkerEdgeColor', [0.05 0.05 0.05], ...
+            'DisplayName', 'Assisted trial rates');
+        plot(ax2, 2, mean_or_nan(assistedVoltageRows.VoltageDropRate_V_per_s), 'kd', ...
+            'MarkerFaceColor', [1 1 1], 'MarkerSize', 9, 'HandleVisibility', 'off');
+    end
+
+    set(ax2, 'XTick', 1:2, 'XTickLabel', {'Baseline unassisted', 'Assisted'});
+    xlim(ax2, [0.5, 2.5]);
+    ylabel(ax2, 'Voltage drop rate [V/s]');
+    xlabel(ax2, 'Configuration');
+    title(ax2, 'Trial Voltage Drop Rate by Configuration');
+    grid(ax2, 'on');
+    legend(ax2, 'Location', 'best');
+
+    yValues = voltageDropTrialTable.VoltageDropRate_V_per_s;
+    finiteY = yValues(isfinite(yValues));
+    if isempty(finiteY)
+        ylim(ax2, [0 1]);
+    else
+        yMin = min(finiteY);
+        yMax = max(finiteY);
+        if abs(yMax - yMin) < eps
+            yPad = max(0.1 * max(abs(yMax), 1e-3), 1e-4);
+            ylim(ax2, [yMin - yPad, yMax + yPad]);
+        else
+            yPad = 0.15 * (yMax - yMin);
+            ylim(ax2, [yMin - yPad, yMax + yPad]);
+        end
+    end
+end
+
+path2 = fullfile(outputFolder, 'voltage_drop_rate_trial_scatter.png');
 exportgraphics(fig2, path2, 'Resolution', 220);
 figurePaths{end + 1, 1} = path2; %#ok<AGROW>
 close(fig2);
-
-%% Figure 3: Direct endurance comparison relative to baseline
-fig3 = figure('Color', 'w', 'Visible', 'off', 'Position', [120 120 900 560]);
-ax3 = axes(fig3);
-comparisonValues = [baselineMean_s, assistedMean_s];
-plot(ax3, [1 2], comparisonValues, '-', 'Color', [0.35 0.35 0.35], 'LineWidth', 1.4, ...
-    'HandleVisibility', 'off');
-hold(ax3, 'on');
-scatter(ax3, 1, baselineMean_s, 86, 'o', 'MarkerFaceColor', [0.12 0.45 0.70], ...
-    'MarkerEdgeColor', [0.05 0.05 0.05], 'DisplayName', char(baselineLabel));
-scatter(ax3, 2, assistedMean_s, 86, 'o', 'MarkerFaceColor', [0.20 0.60 0.32], ...
-    'MarkerEdgeColor', [0.05 0.05 0.05], 'DisplayName', char(assistedLabel));
-yline(ax3, baselineMean_s, ':', 'Color', [0.45 0.45 0.45], 'LineWidth', 1.0, 'HandleVisibility', 'off');
-hold(ax3, 'off');
-set(ax3, 'XTick', 1:2, 'XTickLabel', cellstr([baselineLabel; assistedLabel]));
-ylabel(ax3, 'Hover duration [s]');
-xlabel(ax3, 'Configuration');
-title(ax3, 'Endurance Change Relative to Baseline');
-grid(ax3, 'on');
-
-deltaText = sprintf('%.2f s (%.2f%%)', comparisonTable.AbsoluteEnduranceChange_s(1), ...
-    comparisonTable.PercentageEnduranceChange_percent(1));
-text(ax3, 1.5, max(comparisonValues) + 0.05 * max(comparisonValues + eps), ...
-    sprintf('Assisted - baseline = %s', deltaText), ...
-    'HorizontalAlignment', 'center', 'VerticalAlignment', 'bottom', ...
-    'BackgroundColor', [1 1 1], 'Margin', 5);
-ylim(ax3, nonnegative_axis_limits(comparisonValues, 0.20));
-
-path3 = fullfile(outputFolder, 'hover_endurance_change_percent.png');
-exportgraphics(fig3, path3, 'Resolution', 220);
-figurePaths{end + 1, 1} = path3; %#ok<AGROW>
-close(fig3);
-
-%% Figure 4: Physical BR vs mean hover duration
-fig4 = figure('Color', 'w', 'Visible', 'off', 'Position', [120 120 900 560]);
-ax4 = axes(fig4);
-
-xBR = [summaryTable.MeanPhysicalBR(summaryTable.IsBaseline), summaryTable.MeanPhysicalBR(~summaryTable.IsBaseline)];
-yMean = [baselineMean_s, assistedMean_s];
-
-plot(ax4, xBR, yMean, '-o', 'Color', [0.00 0.45 0.74], 'LineWidth', 1.6, ...
-    'MarkerFaceColor', [0.00 0.45 0.74], 'MarkerSize', 7);
-grid(ax4, 'on');
-xlabel(ax4, 'Physical buoyancy ratio [-]');
-ylabel(ax4, 'Mean hover duration [s]');
-title(ax4, 'Physical BR vs Mean Hover Duration');
-
-text(ax4, xBR(1), yMean(1), sprintf('  %s', baselineLabel), 'VerticalAlignment', 'bottom');
-text(ax4, xBR(2), yMean(2), sprintf('  %s', assistedLabel), 'VerticalAlignment', 'bottom');
- xlim(ax4, nonnegative_axis_limits(xBR, 0.25));
-ylim(ax4, nonnegative_axis_limits(yMean, 0.15));
-
-path4 = fullfile(outputFolder, 'hover_duration_vs_physical_BR.png');
-exportgraphics(fig4, path4, 'Resolution', 220);
-figurePaths{end + 1, 1} = path4; %#ok<AGROW>
-close(fig4);
-
-%% Figure 5: Battery percentage summary (only when data is available)
-hasInitialData = any(isfinite(summaryTable.MeanInitialBattery_percent));
-hasFinalData = any(isfinite(summaryTable.MeanFinalBattery_percent));
-
-if hasInitialData || hasFinalData
-    fig5 = figure('Color', 'w', 'Visible', 'off', 'Position', [120 120 940 560]);
-    ax5 = axes(fig5);
-
-    groupedData = [summaryTable.MeanInitialBattery_percent, summaryTable.MeanFinalBattery_percent];
-    bar(ax5, groupedData, 'grouped');
-    set(ax5, 'XTickLabel', cellstr(summaryTable.ConfigurationLabel));
-    xlabel(ax5, 'Configuration');
-    ylabel(ax5, 'Battery percentage [%]');
-    title(ax5, 'Battery Percentage Summary (Valid Trials)');
-    legend(ax5, {'Mean initial battery', 'Mean final battery'}, 'Location', 'best');
-    grid(ax5, 'on');
-    ylim(ax5, [0 100]);
-
-    path5 = fullfile(outputFolder, 'hover_endurance_battery_percentage_summary.png');
-    exportgraphics(fig5, path5, 'Resolution', 220);
-    figurePaths{end + 1, 1} = path5; %#ok<AGROW>
-    close(fig5);
-end
 end
 
-function write_hover_endurance_report_summary(reportPath, summaryTable, comparisonTable, analysisTable, warningMessages, uavModel, configurationLabels)
+function [trialRateTable, summaryTable, comparisonTable, warningMessages] = analyze_voltage_drop_from_trial_csvs(trialResultsDir)
+%ANALYZE_VOLTAGE_DROP_FROM_TRIAL_CSVS Compute voltage drop rates from trial CSV files.
+warningMessages = strings(0, 1);
+
+trialRows = cell(0, 1);
+supportedLabels = ["Baseline unassisted"; "Assisted"];
+
+if ~exist(trialResultsDir, 'dir')
+    warningMessages(end + 1, 1) = ...
+        "Voltage-drop analysis could not find crazyflie/trial_results directory."; %#ok<SAGROW>
+    [trialRateTable, summaryTable, comparisonTable] = ...
+        build_empty_voltage_drop_tables(trialResultsDir, supportedLabels);
+    return;
+end
+
+csvFiles = dir(fullfile(trialResultsDir, '*_hover_trial.csv'));
+if isempty(csvFiles)
+    warningMessages(end + 1, 1) = ...
+        "Voltage-drop analysis found no *_hover_trial.csv files."; %#ok<SAGROW>
+    [trialRateTable, summaryTable, comparisonTable] = ...
+        build_empty_voltage_drop_tables(trialResultsDir, supportedLabels);
+    return;
+end
+
+for fileIndex = 1:numel(csvFiles)
+    fileName = string(csvFiles(fileIndex).name);
+    filePath = fullfile(csvFiles(fileIndex).folder, csvFiles(fileIndex).name);
+
+    [isClassified, configurationLabel] = classify_voltage_drop_file(fileName);
+    if ~isClassified
+        continue;
+    end
+
+    try
+        trialTable = readtable(filePath, 'VariableNamingRule', 'preserve');
+    catch
+        warningMessages(end + 1, 1) = ...
+            "Voltage-drop analysis skipped an unreadable CSV: " + fileName; %#ok<SAGROW>
+        continue;
+    end
+
+    if ~all(ismember({'time_s', 'vbat'}, trialTable.Properties.VariableNames))
+        warningMessages(end + 1, 1) = ...
+            "Voltage-drop analysis skipped a CSV missing time_s or vbat: " + fileName; %#ok<SAGROW>
+        continue;
+    end
+
+    [time_s, vbat_V] = parse_time_voltage_columns(trialTable.time_s, trialTable.vbat);
+    finiteMask = isfinite(time_s) & isfinite(vbat_V);
+    time_s = time_s(finiteMask);
+    vbat_V = vbat_V(finiteMask);
+
+    if numel(time_s) < 2
+        warningMessages(end + 1, 1) = ...
+            "Voltage-drop analysis skipped CSV with fewer than two valid samples: " + fileName; %#ok<SAGROW>
+        continue;
+    end
+
+    [time_s, sortIdx] = sort(time_s);
+    vbat_V = vbat_V(sortIdx);
+
+    duration_s = time_s(end) - time_s(1);
+    if ~isfinite(duration_s) || duration_s <= 0
+        warningMessages(end + 1, 1) = ...
+            "Voltage-drop analysis skipped CSV with non-positive duration: " + fileName; %#ok<SAGROW>
+        continue;
+    end
+
+    startVoltage_V = vbat_V(1);
+    endVoltage_V = vbat_V(end);
+    voltageDrop_V = startVoltage_V - endVoltage_V;
+    voltageDropRate_V_per_s = voltageDrop_V / duration_s;
+
+    trialRows{end + 1, 1} = struct( ...
+        'ConfigurationLabel', configurationLabel, ...
+        'FileName', fileName, ...
+        'Duration_s', duration_s, ...
+        'StartVoltage_V', startVoltage_V, ...
+        'EndVoltage_V', endVoltage_V, ...
+        'VoltageDrop_V', voltageDrop_V, ...
+        'VoltageDropRate_V_per_s', voltageDropRate_V_per_s); %#ok<SAGROW>
+end
+
+if isempty(trialRows)
+    warningMessages(end + 1, 1) = ...
+        "Voltage-drop analysis did not find usable trial CSV files for assisted vs unassisted."; %#ok<SAGROW>
+    [trialRateTable, summaryTable, comparisonTable] = ...
+        build_empty_voltage_drop_tables(trialResultsDir, supportedLabels);
+    return;
+end
+
+trialRateTable = struct2table(vertcat(trialRows{:}));
+trialRateTable = trialRateTable(:, { ...
+    'ConfigurationLabel', 'FileName', 'Duration_s', ...
+    'StartVoltage_V', 'EndVoltage_V', 'VoltageDrop_V', 'VoltageDropRate_V_per_s'});
+
+trialRateTable.IsOutlier = false(height(trialRateTable), 1);
+trialRateTable.IncludedInComparison = true(height(trialRateTable), 1);
+
+for i = 1:numel(supportedLabels)
+    label = supportedLabels(i);
+    labelMask = trialRateTable.ConfigurationLabel == label;
+    labelRates = trialRateTable.VoltageDropRate_V_per_s(labelMask);
+    outlierMaskLocal = detect_iqr_outliers(labelRates);
+
+    labelIndices = find(labelMask);
+    if ~isempty(labelIndices)
+        outlierIndices = labelIndices(outlierMaskLocal);
+        trialRateTable.IsOutlier(outlierIndices) = true;
+        trialRateTable.IncludedInComparison(outlierIndices) = false;
+    end
+end
+
+summaryRows = cell(numel(supportedLabels), 1);
+for i = 1:numel(supportedLabels)
+    label = supportedLabels(i);
+    rows = trialRateTable(trialRateTable.ConfigurationLabel == label, :);
+    includedRows = rows(rows.IncludedInComparison, :);
+
+    summaryRows{i, 1} = struct( ...
+        'ConfigurationLabel', label, ...
+        'NumberOfCsvTrials', height(rows), ...
+        'NumberOfOutliersRemoved', sum(rows.IsOutlier), ...
+        'NumberIncludedInComparison', height(includedRows), ...
+        'MeanVoltageDropRate_V_per_s', mean_or_nan(includedRows.VoltageDropRate_V_per_s), ...
+        'StdVoltageDropRate_V_per_s', std_or_nan(includedRows.VoltageDropRate_V_per_s), ...
+        'MeanStartVoltage_V', mean_or_nan(rows.StartVoltage_V), ...
+        'MeanEndVoltage_V', mean_or_nan(rows.EndVoltage_V), ...
+        'MeanTrialDuration_s', mean_or_nan(rows.Duration_s), ...
+        'SourceDirectory', string(trialResultsDir)); %#ok<AGROW>
+end
+
+summaryTable = struct2table(vertcat(summaryRows{:}));
+summaryTable = summaryTable(:, { ...
+    'ConfigurationLabel', 'NumberOfCsvTrials', ...
+    'NumberOfOutliersRemoved', 'NumberIncludedInComparison', ...
+    'MeanVoltageDropRate_V_per_s', 'StdVoltageDropRate_V_per_s', ...
+    'MeanStartVoltage_V', 'MeanEndVoltage_V', 'MeanTrialDuration_s', ...
+    'SourceDirectory'});
+
+baselineSummary = summaryTable(summaryTable.ConfigurationLabel == "Baseline unassisted", :);
+assistedSummary = summaryTable(summaryTable.ConfigurationLabel == "Assisted", :);
+
+baselineIncludedRates = trialRateTable.VoltageDropRate_V_per_s( ...
+    trialRateTable.ConfigurationLabel == "Baseline unassisted" & trialRateTable.IncludedInComparison);
+assistedIncludedRates = trialRateTable.VoltageDropRate_V_per_s( ...
+    trialRateTable.ConfigurationLabel == "Assisted" & trialRateTable.IncludedInComparison);
+
+meanBaselineRate = baselineSummary.MeanVoltageDropRate_V_per_s;
+meanAssistedRate = assistedSummary.MeanVoltageDropRate_V_per_s;
+absoluteRateChange = meanAssistedRate - meanBaselineRate;
+
+if isfinite(meanBaselineRate) && abs(meanBaselineRate) > eps
+    percentageRateChange = 100.0 * absoluteRateChange / meanBaselineRate;
+else
+    percentageRateChange = NaN;
+end
+
+[voltageDropTestPerformed, voltageDropTestReason, voltageDropTStatistic, ...
+    voltageDropDegreesFreedom, voltageDropPValue, voltageDropCiLower, voltageDropCiUpper] = ...
+    compute_welch_ttest_summary(assistedIncludedRates, baselineIncludedRates);
+
+comparisonTable = table( ...
+    baselineSummary.NumberOfCsvTrials, ...
+    assistedSummary.NumberOfCsvTrials, ...
+    baselineSummary.NumberOfOutliersRemoved, ...
+    assistedSummary.NumberOfOutliersRemoved, ...
+    baselineSummary.NumberIncludedInComparison, ...
+    assistedSummary.NumberIncludedInComparison, ...
+    meanBaselineRate, ...
+    meanAssistedRate, ...
+    absoluteRateChange, ...
+    percentageRateChange, ...
+    voltageDropTestPerformed, ...
+    voltageDropTestReason, ...
+    voltageDropTStatistic, ...
+    voltageDropDegreesFreedom, ...
+    voltageDropPValue, ...
+    voltageDropCiLower, ...
+    voltageDropCiUpper, ...
+    string(trialResultsDir), ...
+    'VariableNames', { ...
+    'BaselineTrialCount', ...
+    'AssistedTrialCount', ...
+    'BaselineOutliersRemoved', ...
+    'AssistedOutliersRemoved', ...
+    'BaselineIncludedTrialCount', ...
+    'AssistedIncludedTrialCount', ...
+    'MeanBaselineVoltageDrop_V_per_s', ...
+    'MeanAssistedVoltageDrop_V_per_s', ...
+    'AbsoluteVoltageDropChange_V_per_s', ...
+    'PercentageVoltageDropChange_percent', ...
+    'WelchTTestPerformed', ...
+    'ReasonNotPerformed', ...
+    'TStatistic', ...
+    'DegreesOfFreedom', ...
+    'PValue', ...
+    'ConfidenceIntervalLower_V_per_s', ...
+    'ConfidenceIntervalUpper_V_per_s', ...
+    'SourceDirectory'});
+
+if baselineSummary.NumberOfCsvTrials < 1 || assistedSummary.NumberOfCsvTrials < 1
+    warningMessages(end + 1, 1) = ...
+        "Voltage-drop comparison is incomplete because baseline or assisted CSV trials are missing."; %#ok<SAGROW>
+end
+
+if baselineSummary.NumberOfOutliersRemoved > 0 || assistedSummary.NumberOfOutliersRemoved > 0
+    warningMessages(end + 1, 1) = ...
+        "Voltage-drop comparison removed IQR-based outliers before computing summary statistics and significance."; %#ok<SAGROW>
+end
+
+if ~voltageDropTestPerformed
+    warningMessages(end + 1, 1) = ...
+        "Voltage-drop significance testing was not performed because fewer than three non-outlier trials remained in one or more groups."; %#ok<SAGROW>
+end
+
+warningMessages = unique(warningMessages, 'stable');
+end
+
+function outlierMask = detect_iqr_outliers(values)
+%DETECT_IQR_OUTLIERS Detect outliers using the 1.5*IQR rule.
+values = values(:);
+finiteMask = isfinite(values);
+outlierMask = false(size(values));
+
+finiteValues = values(finiteMask);
+if numel(finiteValues) < 4
+    return;
+end
+
+q1 = prctile(finiteValues, 25);
+q3 = prctile(finiteValues, 75);
+iqrValue = q3 - q1;
+
+if ~isfinite(iqrValue) || iqrValue <= 0
+    return;
+end
+
+lowerBound = q1 - 1.5 * iqrValue;
+upperBound = q3 + 1.5 * iqrValue;
+outlierMask(finiteMask) = finiteValues < lowerBound | finiteValues > upperBound;
+end
+
+function [performed, reason, tStatistic, degreesFreedom, pValue, ciLower, ciUpper] = ...
+    compute_welch_ttest_summary(sampleA, sampleB)
+%COMPUTE_WELCH_TTEST_SUMMARY Compute Welch t-test summary for two samples.
+sampleA = sampleA(isfinite(sampleA));
+sampleB = sampleB(isfinite(sampleB));
+
+performed = false;
+reason = "";
+tStatistic = NaN;
+degreesFreedom = NaN;
+pValue = NaN;
+ciLower = NaN;
+ciUpper = NaN;
+
+if numel(sampleA) < 3 || numel(sampleB) < 3
+    reason = "Fewer than three non-outlier trials were available in one or more groups.";
+    return;
+end
+
+performed = true;
+[~, pValue, ci, stats] = ttest2(sampleA, sampleB, 'Vartype', 'unequal');
+tStatistic = stats.tstat;
+degreesFreedom = stats.df;
+ciLower = ci(1);
+ciUpper = ci(2);
+end
+
+function [isClassified, configurationLabel] = classify_voltage_drop_file(fileName)
+%CLASSIFY_VOLTAGE_DROP_FILE Classify CSV as baseline-unassisted or assisted.
+nameLower = lower(fileName);
+
+if contains(nameLower, "baseline") || contains(nameLower, "unassisted")
+    isClassified = true;
+    configurationLabel = "Baseline unassisted";
+    return;
+end
+
+if contains(nameLower, "balloon_assisted") || contains(nameLower, "assisted")
+    isClassified = true;
+    configurationLabel = "Assisted";
+    return;
+end
+
+isClassified = false;
+configurationLabel = "";
+end
+
+function [time_s, vbat_V] = parse_time_voltage_columns(timeColumnRaw, voltageColumnRaw)
+%PARSE_TIME_VOLTAGE_COLUMNS Convert numeric/string table columns to doubles.
+if isnumeric(timeColumnRaw)
+    time_s = timeColumnRaw;
+else
+    time_s = str2double(string(timeColumnRaw));
+end
+
+if isnumeric(voltageColumnRaw)
+    vbat_V = voltageColumnRaw;
+else
+    vbat_V = str2double(string(voltageColumnRaw));
+end
+
+time_s = time_s(:);
+vbat_V = vbat_V(:);
+end
+
+function [trialRateTable, summaryTable, comparisonTable] = build_empty_voltage_drop_tables(trialResultsDir, supportedLabels)
+%BUILD_EMPTY_VOLTAGE_DROP_TABLES Build empty-shaped tables for unavailable data.
+trialRateTable = table( ...
+    strings(0, 1), strings(0, 1), zeros(0, 1), zeros(0, 1), zeros(0, 1), zeros(0, 1), zeros(0, 1), ...
+    'VariableNames', { ...
+    'ConfigurationLabel', 'FileName', 'Duration_s', ...
+    'StartVoltage_V', 'EndVoltage_V', 'VoltageDrop_V', 'VoltageDropRate_V_per_s'});
+
+summaryTable = table( ...
+    supportedLabels, zeros(numel(supportedLabels), 1), ...
+    NaN(numel(supportedLabels), 1), NaN(numel(supportedLabels), 1), ...
+    NaN(numel(supportedLabels), 1), NaN(numel(supportedLabels), 1), NaN(numel(supportedLabels), 1), ...
+    repmat(string(trialResultsDir), numel(supportedLabels), 1), ...
+    'VariableNames', { ...
+    'ConfigurationLabel', 'NumberOfCsvTrials', ...
+    'MeanVoltageDropRate_V_per_s', 'StdVoltageDropRate_V_per_s', ...
+    'MeanStartVoltage_V', 'MeanEndVoltage_V', 'MeanTrialDuration_s', ...
+    'SourceDirectory'});
+
+comparisonTable = table( ...
+    0, 0, NaN, NaN, NaN, NaN, string(trialResultsDir), ...
+    'VariableNames', { ...
+    'BaselineTrialCount', ...
+    'AssistedTrialCount', ...
+    'MeanBaselineVoltageDrop_V_per_s', ...
+    'MeanAssistedVoltageDrop_V_per_s', ...
+    'AbsoluteVoltageDropChange_V_per_s', ...
+    'PercentageVoltageDropChange_percent', ...
+    'SourceDirectory'});
+end
+
+function write_hover_endurance_report_summary(reportPath, summaryTable, comparisonTable, voltageDropComparisonTable, analysisTable, warningMessages, uavModel, configurationLabels)
 %WRITE_HOVER_ENDURANCE_REPORT_SUMMARY Write text summary for thesis reporting.
 baselineRow = summaryTable(summaryTable.IsBaseline, :);
 assistedRow = summaryTable(~summaryTable.IsBaseline, :);
 comparisonRow = comparisonTable(1, :);
+voltageDropComparisonRow = voltageDropComparisonTable(1, :);
 analysisRow = analysisTable(1, :);
 
 lineBreak = sprintf('\n');
@@ -802,6 +941,47 @@ reportText = reportText + sprintf('- Mean physical BR = %.4f', assistedRow.MeanP
 reportText = reportText + "Endurance comparison" + lineBreak;
 reportText = reportText + sprintf('- Assisted hover duration changed by %.2f s relative to baseline.', comparisonRow.AbsoluteEnduranceChange_s) + lineBreak;
 reportText = reportText + sprintf('- Percentage endurance change = %.2f%%', comparisonRow.PercentageEnduranceChange_percent) + lineBreak + lineBreak;
+
+reportText = reportText + "Voltage drop comparison from trial CSV files" + lineBreak;
+reportText = reportText + sprintf('- Baseline trials used: %d', voltageDropComparisonRow.BaselineTrialCount) + lineBreak;
+reportText = reportText + sprintf('- Assisted trials used: %d', voltageDropComparisonRow.AssistedTrialCount) + lineBreak;
+reportText = reportText + sprintf('- Baseline outliers removed: %d', voltageDropComparisonRow.BaselineOutliersRemoved) + lineBreak;
+reportText = reportText + sprintf('- Assisted outliers removed: %d', voltageDropComparisonRow.AssistedOutliersRemoved) + lineBreak;
+reportText = reportText + sprintf('- Baseline non-outlier trials compared: %d', voltageDropComparisonRow.BaselineIncludedTrialCount) + lineBreak;
+reportText = reportText + sprintf('- Assisted non-outlier trials compared: %d', voltageDropComparisonRow.AssistedIncludedTrialCount) + lineBreak;
+if isfinite(voltageDropComparisonRow.MeanBaselineVoltageDrop_V_per_s)
+    reportText = reportText + sprintf('- Mean baseline voltage drop rate = %.6f V/s', voltageDropComparisonRow.MeanBaselineVoltageDrop_V_per_s) + lineBreak;
+else
+    reportText = reportText + "- Mean baseline voltage drop rate = unavailable" + lineBreak;
+end
+
+if isfinite(voltageDropComparisonRow.MeanAssistedVoltageDrop_V_per_s)
+    reportText = reportText + sprintf('- Mean assisted voltage drop rate = %.6f V/s', voltageDropComparisonRow.MeanAssistedVoltageDrop_V_per_s) + lineBreak;
+else
+    reportText = reportText + "- Mean assisted voltage drop rate = unavailable" + lineBreak;
+end
+
+if isfinite(voltageDropComparisonRow.AbsoluteVoltageDropChange_V_per_s)
+    reportText = reportText + sprintf('- Assisted-baseline voltage drop rate change = %.6f V/s', voltageDropComparisonRow.AbsoluteVoltageDropChange_V_per_s) + lineBreak;
+else
+    reportText = reportText + "- Assisted-baseline voltage drop rate change = unavailable" + lineBreak;
+end
+
+if isfinite(voltageDropComparisonRow.PercentageVoltageDropChange_percent)
+    reportText = reportText + sprintf('- Percentage voltage drop rate change = %.2f%%', voltageDropComparisonRow.PercentageVoltageDropChange_percent) + lineBreak;
+else
+    reportText = reportText + "- Percentage voltage drop rate change = unavailable" + lineBreak;
+end
+
+if voltageDropComparisonRow.WelchTTestPerformed
+    reportText = reportText + sprintf('- Voltage-drop Welch t-test: t(%.2f)=%.4f, p=%.4g', ...
+        voltageDropComparisonRow.DegreesOfFreedom, voltageDropComparisonRow.TStatistic, voltageDropComparisonRow.PValue) + lineBreak;
+    reportText = reportText + sprintf('- 95%% CI for assisted-baseline voltage drop rate difference: [%.6f, %.6f] V/s', ...
+        voltageDropComparisonRow.ConfidenceIntervalLower_V_per_s, voltageDropComparisonRow.ConfidenceIntervalUpper_V_per_s) + lineBreak;
+else
+    reportText = reportText + sprintf('- Voltage-drop Welch t-test not performed: %s', voltageDropComparisonRow.ReasonNotPerformed) + lineBreak;
+end
+reportText = reportText + lineBreak;
 
 reportText = reportText + "Statistical analysis" + lineBreak;
 if analysisRow.WelchTTestPerformed
@@ -835,20 +1015,6 @@ if fid < 0
 end
 cleanup = onCleanup(@() fclose(fid)); %#ok<NASGU>
 fprintf(fid, '%s', reportText);
-end
-
-function stopPrompt = build_stop_condition_prompt(isBaseline)
-%BUILD_STOP_CONDITION_PROMPT Build stop-condition prompt text with examples.
-if isBaseline
-    examples = ["battery cutoff", "low battery landing", "manual stop", ...
-        "loss of controlled hover", "collision", "planned termination", "setup failure"];
-else
-    examples = ["battery cutoff", "low battery landing", "manual stop", ...
-        "loss of controlled hover", "collision", "attachment issue", ...
-        "planned termination", "setup failure"];
-end
-
-stopPrompt = sprintf('Stop condition (e.g., %s): ', strjoin(examples, ', '));
 end
 
 function stopConditions = normalize_stop_condition_set(stopConditionSeries)
@@ -984,3 +1150,142 @@ if any(invalidMask)
         'DisplayName', sprintf('%s invalid trials', groupRows.ConfigurationLabel(find(invalidMask, 1, 'first'))));
 end
 end
+
+function trialRows = collect_trial_rows_from_flight_csvs(trialResultsDir, uavModel, gravity_m_s2)
+%COLLECT_TRIAL_ROWS_FROM_FLIGHT_CSVS Build trial rows from hover trial CSV/TXT outputs.
+trialRows = cell(0, 1);
+
+if ~exist(trialResultsDir, 'dir')
+    return;
+end
+
+csvFiles = dir(fullfile(trialResultsDir, '*_hover_trial.csv'));
+if isempty(csvFiles)
+    return;
+end
+
+trialCountByLabel = containers.Map({'Baseline unassisted', 'Assisted'}, {0, 0});
+
+for fileIndex = 1:numel(csvFiles)
+    fileName = string(csvFiles(fileIndex).name);
+    filePath = fullfile(csvFiles(fileIndex).folder, csvFiles(fileIndex).name);
+
+    [isClassified, configurationLabel] = classify_voltage_drop_file(fileName);
+    if ~isClassified
+        continue;
+    end
+
+    isBaseline = configurationLabel == "Baseline unassisted";
+
+    try
+        csvTable = readtable(filePath, 'VariableNamingRule', 'preserve');
+    catch
+        continue;
+    end
+
+    if ~all(ismember({'time_s', 'vbat'}, csvTable.Properties.VariableNames))
+        continue;
+    end
+
+    [time_s, vbat_V] = parse_time_voltage_columns(csvTable.time_s, csvTable.vbat);
+    validMask = isfinite(time_s) & isfinite(vbat_V);
+    time_s = time_s(validMask);
+
+    if numel(time_s) < 2
+        continue;
+    end
+
+    time_s = sort(time_s);
+    hoverDuration_s = time_s(end) - time_s(1);
+    if ~isfinite(hoverDuration_s) || hoverDuration_s <= 0
+        continue;
+    end
+
+    summaryPath = strrep(filePath, '_hover_trial.csv', '_summary.txt');
+    [stopCondition, summaryNotes] = parse_trial_summary_file(summaryPath);
+    if strlength(stopCondition) == 0
+        stopCondition = "from_flight_script";
+    end
+
+    isValid = true;
+
+    trialCountByLabel(char(configurationLabel)) = trialCountByLabel(char(configurationLabel)) + 1;
+    trialNumber = trialCountByLabel(char(configurationLabel));
+
+    assemblyMass_g = NaN;
+    measuredBalloonLift_g = 0.0;
+    if ~isBaseline
+        measuredBalloonLift_g = NaN;
+    end
+
+    [assemblyWeight_N, measuredBalloonLift_N, brPhysical] = ...
+        calculate_trial_quantities(assemblyMass_g, measuredBalloonLift_g, gravity_m_s2, isBaseline);
+
+    configNotes = "Collected automatically from flight-script trial outputs.";
+    if strlength(summaryNotes) > 0
+        configNotes = configNotes + " " + summaryNotes;
+    end
+
+    trialRows{end + 1, 1} = struct( ...
+        'ConfigurationLabel', string(configurationLabel), ...
+        'UAVModel', string(uavModel), ...
+        'IsBaseline', logical(isBaseline), ...
+        'TrialNumber', trialNumber, ...
+        'BatteryID', "", ...
+        'InitialBattery_percent', NaN, ...
+        'FinalBattery_percent', NaN, ...
+        'AssemblyMass_g', assemblyMass_g, ...
+        'AssemblyWeight_N', assemblyWeight_N, ...
+        'MeasuredBalloonLift_g', measuredBalloonLift_g, ...
+        'MeasuredBalloonLift_N', measuredBalloonLift_N, ...
+        'BR_physical', brPhysical, ...
+        'HoverDuration_s', hoverDuration_s, ...
+        'HoverDuration_min', hoverDuration_s / 60.0, ...
+        'BatteryUsed_percent', NaN, ...
+        'HoverSecondsPerBatteryPercent', NaN, ...
+        'StopCondition', string(stopCondition), ...
+        'IsValid', logical(isValid), ...
+        'ConfigurationNotes', string(configNotes), ...
+        'TrialNotes', "Source CSV: " + fileName); %#ok<SAGROW>
+end
+end
+
+function [stopCondition, notesText] = parse_trial_summary_file(summaryPath)
+%PARSE_TRIAL_SUMMARY_FILE Parse key values from per-trial summary TXT file.
+stopCondition = "";
+notesText = "";
+
+if ~isfile(summaryPath)
+    return;
+end
+
+try
+    rawText = fileread(summaryPath);
+catch
+    return;
+end
+
+lines = splitlines(string(rawText));
+lines = strtrim(lines);
+lines(lines == "") = [];
+
+noteParts = strings(0, 1);
+for i = 1:numel(lines)
+    line = lines(i);
+
+    if startsWith(lower(line), "end reason:")
+        stopCondition = strtrim(extractAfter(line, ":"));
+    end
+
+    if startsWith(lower(line), "trial label:") || ...
+            startsWith(lower(line), "hover height target:") || ...
+            startsWith(lower(line), "flight duration:")
+        noteParts(end + 1, 1) = line; %#ok<SAGROW>
+    end
+end
+
+if ~isempty(noteParts)
+    notesText = strjoin(noteParts, " | ");
+end
+end
+
