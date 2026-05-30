@@ -37,6 +37,7 @@ matlab/data/generated/
 # ─── Generated outputs ────────────────────────────────────────────────────────
 data/generated/
 !data/generated/.gitkeep
+crazyflie/trial_results/
 
 # ─── VS Code ──────────────────────────────────────────────────────────────────
 .vscode/
