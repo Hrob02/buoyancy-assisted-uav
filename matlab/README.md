@@ -24,7 +24,7 @@ This directory contains all MATLAB modelling code.
 For interactive foil-balloon lift experiment processing:
 
 1. Run `scripts/setup_paths.m`.
-2. Run `scripts/run_buoyancy_measurement_analysis.m`.
+2. Run `scripts/buoyancy_measurement/run_buoyancy_measurement_analysis.m`.
 
 Outputs are written to:
 - `matlab/results/buoyancy_measurement/`
@@ -35,7 +35,7 @@ Outputs are written to:
 For rotating animations of candidate envelope shapes (sphere, cuboid, prolate ellipsoid, flattened ellipsoid):
 
 1. Run `scripts/setup_paths.m`.
-2. Run `scripts/run_envelope_shape_rotation_animation.m`.
+2. Run `scripts/envelope_geometry/run_envelope_shape_rotation_animation.m`.
 
 Outputs are written to:
 - `matlab/figures/envelope_geometry/shape_rotation/`

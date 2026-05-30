@@ -1,7 +1,7 @@
 function cfg = config_duty_cycle_parameters()
 %CONFIG_DUTY_CYCLE_PARAMETERS Configuration for Crazyflie duty-cycle analysis.
 
-repoRoot = fileparts(fileparts(fileparts(mfilename('fullpath'))));
+repoRoot = fileparts(fileparts(fileparts(fileparts(mfilename('fullpath')))));
 
 cfg.paths.repo_root = repoRoot;
 cfg.paths.results_dir = fullfile(repoRoot, 'matlab', 'results', 'duty_cycle');

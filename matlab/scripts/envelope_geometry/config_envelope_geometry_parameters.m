@@ -1,7 +1,7 @@
 function cfg = config_envelope_geometry_parameters()
 %CONFIG_ENVELOPE_GEOMETRY_PARAMETERS User-editable settings for envelope screening.
 
-repoRoot = fileparts(fileparts(fileparts(mfilename('fullpath'))));
+repoRoot = fileparts(fileparts(fileparts(fileparts(mfilename('fullpath')))));
 
 cfg.paths.repo_root = repoRoot;
 cfg.paths.results_dir = fullfile(repoRoot, 'matlab', 'results', 'envelope_geometry');

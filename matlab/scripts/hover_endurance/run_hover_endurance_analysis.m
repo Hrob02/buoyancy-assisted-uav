@@ -44,7 +44,7 @@ if isempty(scriptPath)
 end
 
 scriptDir = fileparts(scriptPath);
-matlabRoot = fileparts(scriptDir);
+matlabRoot = fileparts(fileparts(scriptDir));
 repoRoot = fileparts(matlabRoot);
 resultsDir = fullfile(repoRoot, 'matlab', 'results', 'hover_endurance');
 ensure_output_directory(resultsDir);

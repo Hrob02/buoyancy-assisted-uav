@@ -279,7 +279,7 @@ This repo includes task shortcuts in `.vscode/tasks.json`:
 
 - **Run ROS Sim** — launches the ROS 2 Gazebo simulation in WSL
 - **Run MATLAB Envelope Study** — runs `matlab/scripts/main.m` via MATLAB batch mode
-- **Run MATLAB Duty-Cycle Analysis** — runs `matlab/duty_cycle/run_duty_cycle_analysis.m` via MATLAB batch mode
+- **Run MATLAB Duty-Cycle Analysis** — runs `matlab/scripts/duty_cycle/run_duty_cycle_analysis.m` via MATLAB batch mode
 
 Run them with:
 

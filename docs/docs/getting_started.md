@@ -52,7 +52,7 @@ Envelope geometry outputs are written to:
 ### MATLAB duty-cycle analysis
 
 ```bash
-matlab -batch "cd('matlab/duty_cycle'); run_duty_cycle_analysis"
+matlab -batch "cd('matlab/scripts/duty_cycle'); run_duty_cycle_analysis"
 ```
 
 ## Duty-cycle outputs

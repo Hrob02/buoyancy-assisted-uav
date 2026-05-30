@@ -1,6 +1,6 @@
 # run_matlab_buoyancy_measurement.ps1 - Launch MATLAB buoyancy measurement analysis on Windows.
 
-$RepoRoot = Split-Path -Parent $PSScriptRoot
+$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..")).Path
 
 $matlabCmd = Get-Command matlab -ErrorAction SilentlyContinue
 if ($matlabCmd) {
@@ -37,7 +37,7 @@ try {
     $logPath = Join-Path $logDir "matlab_buoyancy_launch.log"
 
     Write-Host "[run_matlab_buoyancy_measurement] Launching MATLAB buoyancy measurement analysis..."
-    & $matlabExe -wait -nosplash -softwareopengl -logfile $logPath -r "try, cd('matlab/scripts'); run_buoyancy_measurement_analysis; catch ME, disp(getReport(ME)); exit(1); end; exit(0);"
+    & $matlabExe -wait -nosplash -softwareopengl -logfile $logPath -r "try, cd('matlab/scripts/buoyancy_measurement'); run_buoyancy_measurement_analysis; catch ME, disp(getReport(ME)); exit(1); end; exit(0);"
     $exitCode = $LASTEXITCODE
     if ($exitCode -ne 0) {
         throw "MATLAB exited with code $exitCode."

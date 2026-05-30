@@ -5,7 +5,7 @@
 matlab_root = fileparts(fileparts(mfilename('fullpath')));
 
 addpath(fullfile(matlab_root, 'model'));
-addpath(fullfile(matlab_root, 'scripts'));
+addpath(genpath(fullfile(matlab_root, 'scripts')));
 addpath(fullfile(matlab_root, 'data'));
 
 fprintf('MATLAB path configured. Root: %s\n', matlab_root);

@@ -1,6 +1,6 @@
 # run_matlab_shape_showcase.ps1 - Stitch shape rotation clips into one showcase video.
 
-$RepoRoot = Split-Path -Parent $PSScriptRoot
+$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..")).Path
 
 $matlabCmd = Get-Command matlab -ErrorAction SilentlyContinue
 if ($matlabCmd) {
@@ -31,7 +31,7 @@ Write-Host "[run_matlab_shape_showcase] Using MATLAB executable: $matlabExe"
 Push-Location $RepoRoot
 try {
     Write-Host "[run_matlab_shape_showcase] Launching showcase stitch workflow..."
-    & $matlabExe -batch "cd('matlab/scripts'); run_envelope_shape_showcase_video"
+    & $matlabExe -batch "cd('matlab/scripts/envelope_geometry'); run_envelope_shape_showcase_video"
     $exitCode = $LASTEXITCODE
     if ($exitCode -ne 0) {
         throw "MATLAB exited with code $exitCode."

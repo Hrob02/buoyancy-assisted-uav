@@ -10,7 +10,7 @@
         "-ExecutionPolicy",
         "Bypass",
         "-File",
-        "scripts/run_matlab.ps1"
+        "scripts/matlab/envelope_geometry/run_matlab.ps1"
       ],
       "presentation": {
         "reveal": "always",
@@ -28,7 +28,7 @@
         "-ExecutionPolicy",
         "Bypass",
         "-File",
-        "scripts/run_matlab_duty_cycle.ps1"
+        "scripts/matlab/duty_cycle/run_matlab_duty_cycle.ps1"
       ],
       "presentation": {
         "reveal": "always",
@@ -46,7 +46,7 @@
         "-ExecutionPolicy",
         "Bypass",
         "-File",
-        "scripts/run_matlab_buoyancy_measurement.ps1"
+        "scripts/matlab/buoyancy_measurement/run_matlab_buoyancy_measurement.ps1"
       ],
       "presentation": {
         "reveal": "always",
@@ -64,7 +64,7 @@
         "-ExecutionPolicy",
         "Bypass",
         "-File",
-        "scripts/run_matlab_hover_endurance.ps1"
+        "scripts/matlab/hover_endurance/run_matlab_hover_endurance.ps1"
       ],
       "presentation": {
         "reveal": "always",

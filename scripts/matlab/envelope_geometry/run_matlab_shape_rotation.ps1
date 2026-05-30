@@ -1,6 +1,6 @@
-# run_matlab.ps1 — Launch MATLAB pipeline on Windows.
+# run_matlab_shape_rotation.ps1 - Export rotating envelope-shape animations on Windows.
 
-$RepoRoot = Split-Path -Parent $PSScriptRoot
+$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..")).Path
 
 $matlabCmd = Get-Command matlab -ErrorAction SilentlyContinue
 if ($matlabCmd) {
@@ -20,23 +20,23 @@ else {
     )
 
     if (-not $candidates) {
-        throw "matlab.exe not found under Program Files\MATLAB. Install MATLAB or add it to PATH."
+        throw "matlab.exe not found under Program Files\\MATLAB. Install MATLAB or add it to PATH."
     }
 
     $matlabExe = $candidates[0]
 }
 
-Write-Host "[run_matlab] Using MATLAB executable: $matlabExe"
+Write-Host "[run_matlab_shape_rotation] Using MATLAB executable: $matlabExe"
 
 Push-Location $RepoRoot
 try {
-    Write-Host "[run_matlab] Launching envelope geometry design-screening analysis..."
-    & $matlabExe -batch "cd('matlab/scripts'); run_envelope_geometry_analysis"
+    Write-Host "[run_matlab_shape_rotation] Launching MATLAB shape-rotation animation export..."
+    & $matlabExe -batch "cd('matlab/scripts/envelope_geometry'); run_envelope_shape_rotation_animation"
     $exitCode = $LASTEXITCODE
     if ($exitCode -ne 0) {
         throw "MATLAB exited with code $exitCode."
     }
-    Write-Host "[run_matlab] MATLAB command completed successfully."
+    Write-Host "[run_matlab_shape_rotation] MATLAB command completed successfully."
 }
 finally {
     Pop-Location

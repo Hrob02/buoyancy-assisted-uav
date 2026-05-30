@@ -4,7 +4,7 @@ This repository now uses a MATLAB-first duty-cycle evaluation pipeline for buoya
 
 ## Pipeline Location
 
-- `matlab/duty_cycle/run_duty_cycle_analysis.m`
+- `matlab/scripts/duty_cycle/run_duty_cycle_analysis.m`
 
 ## What It Compares
 
@@ -62,7 +62,7 @@ Feasibility threshold wording is bounded by the tested sweep range:
 
 The model uses Crazyflie-focused baseline values (mass, battery, nominal voltage, C-rating, rotor geometry, and environmental constants) from the duty-cycle configuration file:
 
-- `matlab/duty_cycle/config_duty_cycle_parameters.m`
+- `matlab/scripts/duty_cycle/config_duty_cycle_parameters.m`
 
 ## Generated Outputs
 
